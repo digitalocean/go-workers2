@@ -1,22 +1,33 @@
 package workers
 
 import (
+	"fmt"
 	"time"
 )
 
 type MiddlewareStats struct{}
 
-func (l *MiddlewareStats) Call(queue string, message *Msg, next func() bool) (acknowledge bool) {
+func (l *MiddlewareStats) Call(queue string, message *Msg, next func() error) (err error) {
 	defer func() {
 		if e := recover(); e != nil {
-			incrementStats("failed")
-			panic(e)
+			var ok bool
+			if err, ok = e.(error); !ok {
+				err = fmt.Errorf("%v", e)
+			}
+
+			if err != nil {
+				incrementStats("failed")
+			}
 		}
+
 	}()
 
-	acknowledge = next()
-
-	incrementStats("processed")
+	err = next()
+	if err != nil {
+		incrementStats("failed")
+	} else {
+		incrementStats("processed")
+	}
 
 	return
 }

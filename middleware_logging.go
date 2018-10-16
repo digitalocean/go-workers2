@@ -8,7 +8,15 @@ import (
 
 type MiddlewareLogging struct{}
 
-func (l *MiddlewareLogging) Call(queue string, message *Msg, next func() bool) (acknowledge bool) {
+func (l *MiddlewareLogging) procesError(prefix string, start time.Time, err error) {
+	Logger.Println(prefix, "fail:", time.Since(start))
+
+	buf := make([]byte, 4096)
+	buf = buf[:runtime.Stack(buf, false)]
+	Logger.Printf("%s error: %v\n%s", prefix, err, buf)
+}
+
+func (l *MiddlewareLogging) Call(queue string, message *Msg, next func() error) (err error) {
 	prefix := fmt.Sprint(queue, " JID-", message.Jid())
 
 	start := time.Now()
@@ -17,19 +25,24 @@ func (l *MiddlewareLogging) Call(queue string, message *Msg, next func() bool) (
 
 	defer func() {
 		if e := recover(); e != nil {
-			Logger.Println(prefix, "fail:", time.Since(start))
+			var ok bool
+			if err, ok = e.(error); !ok {
+				err = fmt.Errorf("%v", e)
+			}
 
-			buf := make([]byte, 4096)
-			buf = buf[:runtime.Stack(buf, false)]
-			Logger.Printf("%s error: %v\n%s", prefix, e, buf)
-
-			panic(e)
+			if err != nil {
+				l.procesError(prefix, start, err)
+			}
 		}
+
 	}()
 
-	acknowledge = next()
-
-	Logger.Println(prefix, "done:", time.Since(start))
+	err = next()
+	if err != nil {
+		l.procesError(prefix, start, err)
+	} else {
+		Logger.Println(prefix, "done:", time.Since(start))
+	}
 
 	return
 }
