@@ -70,4 +70,4 @@ func main() {
 }
 ```
 
-Initial development sponsored by [Customer.io](http://customer.io)
+Development sponsored by DigitalOcean. Code forked from [github/jrallison/go-workers](https://github.com/jrallison/go-workers). Initial development sponsored by [Customer.io](http://customer.io).
