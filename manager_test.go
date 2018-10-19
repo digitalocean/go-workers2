@@ -15,12 +15,12 @@ type customMid struct {
 	mutex sync.Mutex
 }
 
-func (m *customMid) Call(queue string, message *Msg, next func() bool) (result bool) {
+func (m *customMid) Call(queue string, message *Msg, next func() error) (err error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
 	m.trace = append(m.trace, m.Base+"1")
-	result = next()
+	err = next()
 	m.trace = append(m.trace, m.Base+"2")
 	return
 }
@@ -40,8 +40,9 @@ func TestNewManager(t *testing.T) {
 	setupTestConfigWithNamespace(namespace)
 
 	processed := make(chan *Args)
-	testJob := (func(message *Msg) {
+	testJob := (func(message *Msg) error {
 		processed <- message.Args()
+		return nil
 	})
 
 	//sets queue with namespace
@@ -79,19 +80,22 @@ func TestQueueProcessing(t *testing.T) {
 	rc := Config.Client
 
 	processed := make(chan *Args)
-	testJob := (func(message *Msg) {
+	testJob := (func(message *Msg) error {
 		processed <- message.Args()
+		return nil
 	})
 
-	manager := newManager("manager1", testJob, 10)
+	manager := newManager("manager1", testJob, 1)
 
 	rc.LPush("prod:queue:manager1", message.ToJson()).Result()
 	rc.LPush("prod:queue:manager1", message2.ToJson()).Result()
 
 	manager.start()
 
-	assert.Equal(t, message.Args(), <-processed)
-	assert.Equal(t, message2.Args(), <-processed)
+	actual := <-processed
+	assert.Equal(t, message.Args().ToJson(), actual.ToJson())
+	actual = <-processed
+	assert.Equal(t, message2.Args().ToJson(), actual.ToJson())
 
 	manager.quit()
 
@@ -110,7 +114,7 @@ func TestDrainQueueOnExit(t *testing.T) {
 
 	drained := false
 
-	slowJob := (func(message *Msg) {
+	slowJob := (func(message *Msg) error {
 		if message.ToJson() == sentinel.ToJson() {
 			drained = true
 		} else {
@@ -118,6 +122,8 @@ func TestDrainQueueOnExit(t *testing.T) {
 		}
 
 		time.Sleep(1 * time.Second)
+
+		return nil
 	})
 	manager := newManager("manager1", slowJob, 10)
 
@@ -145,8 +151,9 @@ func TestMultiMiddleware(t *testing.T) {
 
 	processed := make(chan *Args)
 
-	testJob := (func(message *Msg) {
+	testJob := (func(message *Msg) error {
 		processed <- message.Args()
+		return nil
 	})
 
 	mid1 := customMid{Base: "1"}
@@ -191,8 +198,9 @@ func TestStopFetching(t *testing.T) {
 	rc := Config.Client
 
 	processed := make(chan *Args)
-	testJob := (func(message *Msg) {
+	testJob := (func(message *Msg) error {
 		processed <- message.Args()
+		return nil
 	})
 
 	manager := newManager("manager2", testJob, 10)
