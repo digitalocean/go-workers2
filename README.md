@@ -10,6 +10,7 @@ background workers in [golang](http://golang.org/).
 * customize concurrency per queue
 * responds to Unix signals to safely wait for jobs to finish before exiting.
 * provides stats on what jobs are currently running
+* redis sentinel support
 * well tested
 
 Example usage:
@@ -21,17 +22,18 @@ import (
 	"github.com/digitalocean/go-workers2"
 )
 
-func myJob(message *workers.Msg) {
+func myJob(message *workers.Msg) error {
   // do something with your message
   // message.Jid()
   // message.Args() is a wrapper around go-simplejson (http://godoc.org/github.com/bitly/go-simplejson)
+  return nil
 }
 
 type myMiddleware struct{}
 
-func (r *myMiddleware) Call(queue string, message *workers.Msg, next func() bool) (acknowledge bool) {
+func (r *myMiddleware) Call(queue string, message *workers.Msg, next func() error) (err error) {
   // do something before each message is processed
-  acknowledge = next()
+  err = next()
   // do something after each message is processed
   return
 } 
