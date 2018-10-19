@@ -8,7 +8,7 @@ import (
 
 type MiddlewareLogging struct{}
 
-func (l *MiddlewareLogging) procesError(prefix string, start time.Time, err error) {
+func (l *MiddlewareLogging) processError(prefix string, start time.Time, err error) {
 	Logger.Println(prefix, "fail:", time.Since(start))
 
 	buf := make([]byte, 4096)
@@ -31,7 +31,7 @@ func (l *MiddlewareLogging) Call(queue string, message *Msg, next func() error) 
 			}
 
 			if err != nil {
-				l.procesError(prefix, start, err)
+				l.processError(prefix, start, err)
 			}
 		}
 
@@ -39,7 +39,7 @@ func (l *MiddlewareLogging) Call(queue string, message *Msg, next func() error) 
 
 	err = next()
 	if err != nil {
-		l.procesError(prefix, start, err)
+		l.processError(prefix, start, err)
 	} else {
 		Logger.Println(prefix, "done:", time.Since(start))
 	}
