@@ -29,14 +29,14 @@ func myJob(message *workers.Msg) error {
   return nil
 }
 
-type myMiddleware struct{}
-
-func (r *myMiddleware) Call(queue string, message *workers.Msg, next func() error) (err error) {
-  // do something before each message is processed
-  err = next()
-  // do something after each message is processed
-  return
-} 
+func myMiddleware(queue string, next JobFunc) JobFunc {
+  return func(message *workers.Msg) (err error) {
+    // do something before each message is processed
+    err = next()
+    // do something after each message is processed
+    return
+  }
+}
 
 func main() {
   workers.Configure(map[string]string{
@@ -50,13 +50,20 @@ func main() {
     "process": "1",
   })
 
-  workers.Middleware.Append(&myMiddleware{})
+  // create a middleware chain with the default middlewares, and append myMiddleware
+  mids := workers.DefaultMiddlewares().Append(myMiddleware)
 
   // pull messages from "myqueue" with concurrency of 10
+  // this processor will not run myMiddleware, but will run the default middlewares
   workers.Process("myqueue", myJob, 10)
 
   // pull messages from "myqueue2" with concurrency of 20
-  workers.Process("myqueue2", myJob, 20)
+  // this processor will run the default middlewares and myMiddleware
+  workers.Process("myqueue2", myJob, 20, mids...)
+
+  // pull messages from "myqueue3" with concurrency of 20
+  // this processor will only run myMiddleware
+  workers.Process("myqueue3", myJob, 20, myMiddleware)
 
   // Add a job to a queue
   workers.Enqueue("myqueue3", "Add", []int{1, 2})

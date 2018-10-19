@@ -10,13 +10,11 @@ import (
 )
 
 const (
-	DEFAULT_MAX_RETRY = 25
-	LAYOUT            = "2006-01-02 15:04:05 MST"
+	DefaultRetryMax = 25
+	RetryTimeFormat = "2006-01-02 15:04:05 MST"
 )
 
-type MiddlewareRetry struct{}
-
-func (r *MiddlewareRetry) processError(queue string, message *Msg, err error) error {
+func retryProcessError(queue string, message *Msg, err error) error {
 	if retry(message) {
 		message.Set("queue", queue)
 		message.Set("error_message", fmt.Sprintf("%v", err))
@@ -29,7 +27,7 @@ func (r *MiddlewareRetry) processError(queue string, message *Msg, err error) er
 		)
 
 		rc := Config.Client
-		_, rcErr := rc.ZAdd(Config.Namespace+RETRY_KEY, redis.Z{
+		_, err = rc.ZAdd(Config.Namespace+RETRY_KEY, redis.Z{
 			Score:  nowToSecondsWithNanoPrecision() + waitDuration,
 			Member: message.ToJson(),
 		}).Result()
@@ -37,42 +35,41 @@ func (r *MiddlewareRetry) processError(queue string, message *Msg, err error) er
 		// If we can't add the job to the retry queue,
 		// then we shouldn't acknowledge the job, otherwise
 		// it'll disappear into the void.
-		if rcErr != nil {
-			return NoAckError{rcErr}
-		} else {
-			return nil
+		if err != nil {
+			err = NoAckError{err}
 		}
-	} else {
-		return err
 	}
+	return err
 }
 
-func (r *MiddlewareRetry) Call(queue string, message *Msg, next func() error) (err error) {
-	defer func() {
-		if e := recover(); e != nil {
-			var ok bool
-			if err, ok = e.(error); !ok {
-				err = fmt.Errorf("%v", e)
+func RetryMiddleware(queue string, next JobFunc) JobFunc {
+	return func(message *Msg) (err error) {
+		defer func() {
+			if e := recover(); e != nil {
+				var ok bool
+				if err, ok = e.(error); !ok {
+					err = fmt.Errorf("%v", e)
+				}
+
+				if err != nil {
+					err = retryProcessError(queue, message, err)
+				}
 			}
 
-			if err != nil {
-				err = r.processError(queue, message, err)
-			}
+		}()
+
+		err = next(message)
+		if err != nil {
+			err = retryProcessError(queue, message, err)
 		}
 
-	}()
-
-	err = next()
-	if err != nil {
-		err = r.processError(queue, message, err)
+		return
 	}
-
-	return
 }
 
 func retry(message *Msg) bool {
 	retry := false
-	max := DEFAULT_MAX_RETRY
+	max := DefaultRetryMax
 
 	if param, err := message.Get("retry").Bool(); err == nil {
 		retry = param
@@ -90,9 +87,9 @@ func incrementRetry(message *Msg) (retryCount int) {
 	retryCount = 0
 
 	if count, err := message.Get("retry_count").Int(); err != nil {
-		message.Set("failed_at", time.Now().UTC().Format(LAYOUT))
+		message.Set("failed_at", time.Now().UTC().Format(RetryTimeFormat))
 	} else {
-		message.Set("retried_at", time.Now().UTC().Format(LAYOUT))
+		message.Set("retried_at", time.Now().UTC().Format(RetryTimeFormat))
 		retryCount = count + 1
 	}
 

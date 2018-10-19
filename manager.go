@@ -8,14 +8,13 @@ import (
 type manager struct {
 	queue       string
 	fetch       Fetcher
-	job         JobFunc
+	handler     JobFunc
 	concurrency int
 	workers     []*worker
 	workersM    *sync.Mutex
 	confirm     chan *Msg
 	stop        chan bool
 	exit        chan bool
-	mids        *Middlewares
 	*sync.WaitGroup
 }
 
@@ -93,15 +92,12 @@ func (m *manager) reset() {
 	m.fetch = Config.Fetch(m.queue)
 }
 
-func newManager(queue string, job JobFunc, concurrency int, mids ...Action) *manager {
-	var customMids *Middlewares
+func newManager(queue string, job JobFunc, concurrency int, mids ...MiddlewareFunc) *manager {
+	middlewareQueueName := Config.Namespace + queue
 	if len(mids) == 0 {
-		customMids = Middleware
+		job = DefaultMiddlewares().build(middlewareQueueName, job)
 	} else {
-		customMids = NewMiddleware(Middleware.actions...)
-		for _, m := range mids {
-			customMids.Append(m)
-		}
+		job = NewMiddlewares(mids...).build(middlewareQueueName, job)
 	}
 	m := &manager{
 		Config.Namespace + "queue:" + queue,
@@ -113,7 +109,6 @@ func newManager(queue string, job JobFunc, concurrency int, mids ...Action) *man
 		make(chan *Msg),
 		make(chan bool),
 		make(chan bool),
-		customMids,
 		&sync.WaitGroup{},
 	}
 

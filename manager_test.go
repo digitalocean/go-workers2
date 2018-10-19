@@ -10,19 +10,27 @@ import (
 )
 
 type customMid struct {
-	trace []string
-	Base  string
-	mutex sync.Mutex
+	trace      []string
+	base       string
+	mutex      sync.Mutex
+	timesBuilt int
 }
 
-func (m *customMid) Call(queue string, message *Msg, next func() error) (err error) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+func (m *customMid) AsMiddleware() MiddlewareFunc {
+	return func(queue string, next JobFunc) JobFunc {
+		m.mutex.Lock()
+		defer m.mutex.Unlock()
+		m.timesBuilt += 1
+		return func(message *Msg) (err error) {
+			m.mutex.Lock()
+			defer m.mutex.Unlock()
 
-	m.trace = append(m.trace, m.Base+"1")
-	err = next()
-	m.trace = append(m.trace, m.Base+"2")
-	return
+			m.trace = append(m.trace, m.base+"1")
+			err = next(message)
+			m.trace = append(m.trace, m.base+"2")
+			return
+		}
+	}
 }
 
 func (m *customMid) Trace() []string {
@@ -50,9 +58,9 @@ func TestNewManager(t *testing.T) {
 	assert.Equal(t, "prod:queue:myqueue", manager.queue)
 
 	//sets job function
-	manager = newManager("myqueue", testJob, 10)
+	manager = newManager("myqueue", testJob, 10, NopMiddleware)
 
-	f1 := reflect.ValueOf(manager.job)
+	f1 := reflect.ValueOf(manager.handler)
 	f2 := reflect.ValueOf(testJob)
 	assert.Equal(t, f1.Pointer(), f2.Pointer())
 
@@ -60,15 +68,22 @@ func TestNewManager(t *testing.T) {
 	manager = newManager("myqueue", testJob, 10)
 	assert.Equal(t, 10, manager.concurrency)
 
+	mid1 := &customMid{base: "0"}
+	oldMiddlewares := defaultMiddlewares
+	defer func() {
+		defaultMiddlewares = oldMiddlewares
+	}()
+	defaultMiddlewares = NewMiddlewares(mid1.AsMiddleware())
+
 	//no per-manager middleware means 'use global Middleware object
 	manager = newManager("myqueue", testJob, 10)
-	assert.Equal(t, Middleware, manager.mids)
+	assert.Equal(t, mid1.timesBuilt, 1)
 
 	//per-manager middlewares create separate middleware chains
-	mid1 := customMid{Base: "0"}
-	manager = newManager("myqueue", testJob, 10, &mid1)
-	assert.NotEqual(t, Middleware, manager.mids)
-	assert.Equal(t, len(Middleware.actions)+1, len(manager.mids.actions))
+	mid2 := &customMid{base: "0"}
+	manager = newManager("myqueue", testJob, 10, mid2.AsMiddleware())
+	assert.Equal(t, mid1.timesBuilt, 1) // Make sure it doesn't use the defaults
+	assert.Equal(t, mid2.timesBuilt, 1)
 }
 
 var message, _ = NewMsg("{\"foo\":\"bar\",\"args\":[\"foo\",\"bar\"]}")
@@ -156,17 +171,19 @@ func TestMultiMiddleware(t *testing.T) {
 		return nil
 	})
 
-	mid1 := customMid{Base: "1"}
-	mid2 := customMid{Base: "2"}
-	mid3 := customMid{Base: "3"}
+	mid1 := &customMid{base: "1"}
+	mid2 := &customMid{base: "2"}
+	mid3 := &customMid{base: "3"}
 
-	oldMiddleware := Middleware
-	Middleware = NewMiddleware()
-	Middleware.Append(&mid1)
+	oldMiddlewares := defaultMiddlewares
+	defer func() {
+		defaultMiddlewares = oldMiddlewares
+	}()
+	defaultMiddlewares = NewMiddlewares(mid1.AsMiddleware())
 
 	manager1 := newManager("manager1", testJob, 10)
-	manager2 := newManager("manager2", testJob, 10, &mid2)
-	manager3 := newManager("manager3", testJob, 10, &mid3)
+	manager2 := newManager("manager2", testJob, 10, mid2.AsMiddleware())
+	manager3 := newManager("manager3", testJob, 10, mid3.AsMiddleware())
 
 	rc.LPush("prod:queue:manager1", message.ToJson()).Result()
 	rc.LPush("prod:queue:manager2", message.ToJson()).Result()
@@ -180,11 +197,9 @@ func TestMultiMiddleware(t *testing.T) {
 	<-processed
 	<-processed
 
-	Middleware = oldMiddleware
-
-	assert.Equal(t, []string{"11", "12", "11", "12", "11", "12"}, mid1.Trace())
-	assert.Equal(t, mid2.Trace(), []string{"21", "22"}, mid2.Trace())
-	assert.Equal(t, mid3.Trace(), []string{"31", "32"}, mid3.Trace())
+	assert.Equal(t, []string{"11", "12"}, mid1.Trace())
+	assert.Equal(t, []string{"21", "22"}, mid2.Trace())
+	assert.Equal(t, []string{"31", "32"}, mid3.Trace())
 
 	manager1.quit()
 	manager2.quit()
