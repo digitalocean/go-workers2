@@ -12,6 +12,7 @@ type data struct {
 type Msg struct {
 	*data
 	original string
+	ack      bool
 }
 
 type Args struct {
@@ -54,7 +55,7 @@ func NewMsg(content string) (*Msg, error) {
 	if d, err := newData(content); err != nil {
 		return nil, err
 	} else {
-		return &Msg{d, content}, nil
+		return &Msg{d, content, true}, nil
 	}
 }
 

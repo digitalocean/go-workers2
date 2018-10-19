@@ -14,10 +14,6 @@ type worker struct {
 	startedAt  int64
 }
 
-type NoAckError struct {
-	error
-}
-
 func (w *worker) start() {
 	go w.work(w.manager.fetch.Messages())
 }
@@ -34,11 +30,9 @@ func (w *worker) work(messages chan *Msg) {
 			atomic.StoreInt64(&w.startedAt, time.Now().UTC().Unix())
 			w.currentMsg = message
 
-			err := w.process(message)
+			w.process(message)
 
-			if err == nil {
-				w.manager.confirm <- message
-			} else if _, ok := err.(NoAckError); !ok {
+			if message.ack {
 				w.manager.confirm <- message
 			}
 

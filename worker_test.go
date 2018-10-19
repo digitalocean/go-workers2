@@ -22,7 +22,8 @@ func failMiddleware(queue string, next JobFunc) JobFunc {
 	return func(message *Msg) error {
 		failMiddlewareCalled = true
 		next(message)
-		return NoAckError{errors.New("test error")}
+		message.ack = false
+		return errors.New("test error")
 	}
 }
 
