@@ -1,11 +1,11 @@
 package workers
 
 func setupTestConfig() {
-	Configure(map[string]string{
-		"server":   "localhost:6379",
-		"process":  "1",
-		"database": "15",
-		"pool":     "1",
+	Configure(Options{
+		ServerAddr: "localhost:6379",
+		ProcessID:  "1",
+		Database:   15,
+		PoolSize:   1,
 	})
 
 	rc := Config.Client
@@ -13,12 +13,12 @@ func setupTestConfig() {
 }
 
 func setupTestConfigWithNamespace(namespace string) {
-	Configure(map[string]string{
-		"server":    "localhost:6379",
-		"process":   "1",
-		"database":  "15",
-		"pool":      "1",
-		"namespace": namespace,
+	Configure(Options{
+		ServerAddr: "localhost:6379",
+		ProcessID:  "1",
+		Database:   15,
+		PoolSize:   1,
+		Namespace:  namespace,
 	})
 
 	rc := Config.Client
