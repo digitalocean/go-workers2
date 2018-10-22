@@ -6,43 +6,44 @@ import (
 	"time"
 )
 
-type MiddlewareLogging struct{}
+func LogMiddleware(queue string, next JobFunc) JobFunc {
+	return func(message *Msg) (err error) {
+		prefix := fmt.Sprint(queue, " JID-", message.Jid())
 
-func (l *MiddlewareLogging) processError(prefix string, start time.Time, err error) {
+		start := time.Now()
+		Logger.Println(prefix, "start")
+		Logger.Println(prefix, "args:", message.Args().ToJson())
+
+		defer func() {
+			if e := recover(); e != nil {
+				var ok bool
+				if err, ok = e.(error); !ok {
+					err = fmt.Errorf("%v", e)
+				}
+
+				if err != nil {
+					logProcessError(prefix, start, err)
+				}
+			}
+
+		}()
+
+		err = next(message)
+		if err != nil {
+			logProcessError(prefix, start, err)
+		} else {
+			Logger.Println(prefix, "done:", time.Since(start))
+		}
+
+		return
+	}
+
+}
+
+func logProcessError(prefix string, start time.Time, err error) {
 	Logger.Println(prefix, "fail:", time.Since(start))
 
 	buf := make([]byte, 4096)
 	buf = buf[:runtime.Stack(buf, false)]
 	Logger.Printf("%s error: %v\n%s", prefix, err, buf)
-}
-
-func (l *MiddlewareLogging) Call(queue string, message *Msg, next func() error) (err error) {
-	prefix := fmt.Sprint(queue, " JID-", message.Jid())
-
-	start := time.Now()
-	Logger.Println(prefix, "start")
-	Logger.Println(prefix, "args:", message.Args().ToJson())
-
-	defer func() {
-		if e := recover(); e != nil {
-			var ok bool
-			if err, ok = e.(error); !ok {
-				err = fmt.Errorf("%v", e)
-			}
-
-			if err != nil {
-				l.processError(prefix, start, err)
-			}
-		}
-
-	}()
-
-	err = next()
-	if err != nil {
-		l.processError(prefix, start, err)
-	} else {
-		Logger.Println(prefix, "done:", time.Since(start))
-	}
-
-	return
 }

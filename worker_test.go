@@ -11,19 +11,19 @@ import (
 var testMiddlewareCalled bool
 var failMiddlewareCalled bool
 
-type testMiddleware struct{}
-
-func (l *testMiddleware) Call(queue string, message *Msg, next func() error) (result error) {
-	testMiddlewareCalled = true
-	return next()
+func testMiddleware(queue string, next JobFunc) JobFunc {
+	return func(message *Msg) error {
+		testMiddlewareCalled = true
+		return next(message)
+	}
 }
 
-type failMiddleware struct{}
-
-func (l *failMiddleware) Call(queue string, message *Msg, next func() error) (result error) {
-	failMiddlewareCalled = true
-	next()
-	return NoAckError{errors.New("test error")}
+func failMiddleware(queue string, next JobFunc) JobFunc {
+	return func(message *Msg) error {
+		failMiddlewareCalled = true
+		next(message)
+		return NoAckError{errors.New("test error")}
+	}
 }
 
 func confirm(manager *manager) (msg *Msg) {
@@ -89,9 +89,26 @@ func TestWork(t *testing.T) {
 	assert.Equal(t, message, confirm(manager))
 
 	worker.quit()
+}
 
-	//runs defined middleware and confirms
-	Middleware.Append(&testMiddleware{})
+func TestWork_middlewares(t *testing.T) {
+	setupTestConfig()
+
+	var processed = make(chan *Args)
+
+	var testJob = (func(message *Msg) error {
+		processed <- message.Args()
+		return nil
+	})
+
+	// runs defined middleware and confirms
+	mids := DefaultMiddlewares().Append(testMiddleware)
+
+	manager := newManager("myqueue", testJob, 1, mids...)
+
+	worker := newWorker(manager)
+	messages := make(chan *Msg)
+	message, _ := NewMsg("{\"jid\":\"2309823\",\"args\":[\"foo\",\"bar\"]}")
 
 	go worker.work(messages)
 	messages <- message
@@ -101,12 +118,6 @@ func TestWork(t *testing.T) {
 	assert.True(t, testMiddlewareCalled)
 
 	worker.quit()
-
-	Middleware = NewMiddleware(
-		&MiddlewareLogging{},
-		&MiddlewareRetry{},
-		&MiddlewareStats{},
-	)
 }
 
 func TestFailMiddleware(t *testing.T) {
@@ -118,16 +129,10 @@ func TestFailMiddleware(t *testing.T) {
 		return nil
 	})
 
-	Middleware = NewMiddleware(
-		&MiddlewareLogging{},
-		&MiddlewareRetry{},
-		&MiddlewareStats{},
-	)
-
 	//doesn't confirm if middleware cancels acknowledgement
-	Middleware.Append(&failMiddleware{})
+	mids := DefaultMiddlewares().Append(failMiddleware)
 
-	manager := newManager("myqueue", testJob, 1)
+	manager := newManager("myqueue", testJob, 1, mids...)
 	worker := newWorker(manager)
 	messages := make(chan *Msg)
 	message, _ := NewMsg("{\"jid\":\"2309823\",\"args\":[\"foo\",\"bar\"]}")
@@ -140,12 +145,6 @@ func TestFailMiddleware(t *testing.T) {
 	assert.True(t, failMiddlewareCalled)
 
 	worker.quit()
-
-	Middleware = NewMiddleware(
-		&MiddlewareLogging{},
-		&MiddlewareRetry{},
-		&MiddlewareStats{},
-	)
 }
 
 func TestRecoverWithPanic(t *testing.T) {

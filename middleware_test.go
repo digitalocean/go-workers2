@@ -20,49 +20,59 @@ func arrayCompare(a1, a2 []string) bool {
 	return true
 }
 
-var order = make([]string, 0)
-
-type m1 struct{}
-type m2 struct{}
-
-func (m *m1) Call(queue string, message *Msg, next func() error) (result error) {
-	order = append(order, "m1 enter")
-	result = next()
-	order = append(order, "m1 leave")
-	return
+type orderMiddleware struct {
+	name  string
+	order *[]string
 }
 
-func (m *m2) Call(queue string, message *Msg, next func() error) (result error) {
-	order = append(order, "m2 enter")
-	result = next()
-	order = append(order, "m2 leave")
-	return
+func (m *orderMiddleware) f() MiddlewareFunc {
+	return func(queue string, next JobFunc) JobFunc {
+		return func(message *Msg) (result error) {
+			*m.order = append(*m.order, m.name+" enter")
+			result = next(message)
+			*m.order = append(*m.order, m.name+" leave")
+			return
+		}
+	}
 }
 
-func TestNewMiddleware(t *testing.T) {
+func TestNewMiddlewares(t *testing.T) {
 	//no middleware
-	middleware := NewMiddleware()
-	assert.Equal(t, 0, len(middleware.actions))
+	middlewares := NewMiddlewares()
+	assert.Equal(t, 0, len(middlewares))
 
 	//middleware set when initializing
-	first := &m1{}
-	second := &m2{}
-	middleware = NewMiddleware(first, second)
-	assert.Equal(t, first, middleware.actions[0])
-	assert.Equal(t, second, middleware.actions[1])
+	order := make([]string, 0)
+	first := orderMiddleware{"m1", &order}
+	second := orderMiddleware{"m2", &order}
+	middlewares = NewMiddlewares(first.f(), second.f())
+
+	middlewares.build("myqueue", func(message *Msg) error {
+		order = append(order, "job")
+		return nil
+	})(message)
+
+	expectedOrder := []string{
+		"m1 enter",
+		"m2 enter",
+		"job",
+		"m2 leave",
+		"m1 leave",
+	}
+
+	assert.Equal(t, expectedOrder, order)
 }
 
 func TestAppendMiddleware(t *testing.T) {
-	first := &m1{}
-	second := &m2{}
-	middleware := NewMiddleware()
-	middleware.Append(first)
-	middleware.Append(second)
+	order := make([]string, 0)
+	first := orderMiddleware{"m1", &order}
+	second := orderMiddleware{"m2", &order}
+	middleware := NewMiddlewares().Append(first.f()).Append(second.f())
 
-	middleware.call("myqueue", message, func() error {
+	middleware.build("myqueue", func(message *Msg) error {
 		order = append(order, "job")
 		return nil
-	})
+	})(message)
 
 	expectedOrder := []string{
 		"m1 enter",
@@ -76,19 +86,17 @@ func TestAppendMiddleware(t *testing.T) {
 }
 
 func TestPrependMiddleware(t *testing.T) {
-	middleware := NewMiddleware()
 	message, _ := NewMsg("{\"foo\":\"bar\"}")
-	order = make([]string, 0)
-	first := &m1{}
-	second := &m2{}
+	order := make([]string, 0)
+	first := orderMiddleware{"m1", &order}
+	second := orderMiddleware{"m2", &order}
 
-	middleware.Prepend(first)
-	middleware.Prepend(second)
+	middleware := NewMiddlewares().Prepend(first.f()).Prepend(second.f())
 
-	middleware.call("myqueue", message, func() error {
+	middleware.build("myqueue", func(message *Msg) error {
 		order = append(order, "job")
 		return nil
-	})
+	})(message)
 
 	expectedOrder := []string{
 		"m2 enter",

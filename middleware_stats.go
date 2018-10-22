@@ -5,31 +5,31 @@ import (
 	"time"
 )
 
-type MiddlewareStats struct{}
+func StatsMiddleware(queue string, next JobFunc) JobFunc {
+	return func(message *Msg) (err error) {
+		defer func() {
+			if e := recover(); e != nil {
+				var ok bool
+				if err, ok = e.(error); !ok {
+					err = fmt.Errorf("%v", e)
+				}
 
-func (l *MiddlewareStats) Call(queue string, message *Msg, next func() error) (err error) {
-	defer func() {
-		if e := recover(); e != nil {
-			var ok bool
-			if err, ok = e.(error); !ok {
-				err = fmt.Errorf("%v", e)
+				if err != nil {
+					incrementStats("failed")
+				}
 			}
 
-			if err != nil {
-				incrementStats("failed")
-			}
+		}()
+
+		err = next(message)
+		if err != nil {
+			incrementStats("failed")
+		} else {
+			incrementStats("processed")
 		}
 
-	}()
-
-	err = next()
-	if err != nil {
-		incrementStats("failed")
-	} else {
-		incrementStats("processed")
+		return
 	}
-
-	return
 }
 
 func incrementStats(metric string) {

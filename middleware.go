@@ -1,42 +1,42 @@
 package workers
 
-type Action interface {
-	Call(queue string, message *Msg, next func() error) error
+type JobFunc func(message *Msg) error
+
+type MiddlewareFunc func(queue string, next JobFunc) JobFunc
+
+type Middlewares []MiddlewareFunc
+
+func (m Middlewares) Append(mid MiddlewareFunc) Middlewares {
+	return append(m, mid)
 }
 
-type Middlewares struct {
-	actions []Action
+func (m Middlewares) Prepend(mid MiddlewareFunc) Middlewares {
+	return append(Middlewares{mid}, m...)
 }
 
-func (m *Middlewares) Append(action Action) {
-	m.actions = append(m.actions, action)
-}
-
-func (m *Middlewares) Prepend(action Action) {
-	actions := make([]Action, len(m.actions)+1)
-	actions[0] = action
-	copy(actions[1:], m.actions)
-	m.actions = actions
-}
-
-func (m *Middlewares) call(queue string, message *Msg, final func() error) error {
-	return continuation(m.actions, queue, message, final)()
-}
-
-func continuation(actions []Action, queue string, message *Msg, final func() error) func() error {
-	return func() (cError error) {
-		if len(actions) > 0 {
-			return actions[0].Call(
-				queue,
-				message,
-				continuation(actions[1:], queue, message, final),
-			)
-		} else {
-			return final()
-		}
+func (ms Middlewares) build(queue string, final JobFunc) JobFunc {
+	for i := len(ms) - 1; i >= 0; i-- {
+		final = ms[i](queue, final)
 	}
+	return final
 }
 
-func NewMiddleware(actions ...Action) *Middlewares {
-	return &Middlewares{actions}
+func NewMiddlewares(mids ...MiddlewareFunc) Middlewares {
+	return Middlewares(mids)
+}
+
+// This is a variable for testing reasons
+var defaultMiddlewares = NewMiddlewares(
+	LogMiddleware,
+	RetryMiddleware,
+	StatsMiddleware,
+)
+
+func DefaultMiddlewares() Middlewares {
+	return defaultMiddlewares
+}
+
+// NopMiddleware does nothing
+func NopMiddleware(queue string, final JobFunc) JobFunc {
+	return final
 }

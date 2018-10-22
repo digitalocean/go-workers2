@@ -22,13 +22,7 @@ var control = make(map[string]chan string)
 var access sync.Mutex
 var started bool
 
-var Middleware = NewMiddleware(
-	&MiddlewareLogging{},
-	&MiddlewareRetry{},
-	&MiddlewareStats{},
-)
-
-func Process(queue string, job JobFunc, concurrency int, mids ...Action) {
+func Process(queue string, job JobFunc, concurrency int, mids ...MiddlewareFunc) {
 	access.Lock()
 	defer access.Unlock()
 

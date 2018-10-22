@@ -73,9 +73,7 @@ func (w *worker) process(message *Msg) (err error) {
 		}
 	}()
 
-	return w.manager.mids.call(w.manager.queueName(), message, func() error {
-		return w.manager.job(message)
-	})
+	return w.manager.handler(message)
 }
 
 func (w *worker) processing() bool {
