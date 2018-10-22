@@ -36,7 +36,7 @@ func retryProcessError(queue string, message *Msg, err error) error {
 		// then we shouldn't acknowledge the job, otherwise
 		// it'll disappear into the void.
 		if err != nil {
-			err = NoAckError{err}
+			message.ack = false
 		}
 	}
 	return err
