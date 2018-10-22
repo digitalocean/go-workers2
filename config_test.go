@@ -25,88 +25,84 @@ var recoverOnPanic = func(f func()) (err error) {
 
 func TestRedisPoolConfig(t *testing.T) {
 	// Tests redis pool size which defaults to 1
-	Configure(map[string]string{
-		"server":  "localhost:6379",
-		"process": "2",
+	Configure(Options{
+		ServerAddr: "localhost:6379",
+		ProcessID:  "2",
 	})
 	assert.Equal(t, 1, Config.Client.Options().PoolSize)
 
-	Configure(map[string]string{
-		"server":  "localhost:6379",
-		"process": "1",
-		"pool":    "20",
+	Configure(Options{
+		ServerAddr: "localhost:6379",
+		ProcessID:  "1",
+		PoolSize:   20,
 	})
 
 	assert.Equal(t, 20, Config.Client.Options().PoolSize)
 }
 
 func TestCustomProcessConfig(t *testing.T) {
-	Configure(map[string]string{
-		"server":  "localhost:6379",
-		"process": "1",
+	Configure(Options{
+		ServerAddr: "localhost:6379",
+		ProcessID:  "1",
 	})
 	assert.Equal(t, "1", Config.processId)
 
-	Configure(map[string]string{
-		"server":  "localhost:6379",
-		"process": "2",
+	Configure(Options{
+		ServerAddr: "localhost:6379",
+		ProcessID:  "2",
 	})
 	assert.Equal(t, "2", Config.processId)
 }
 
 func TestRequiresRedisConfig(t *testing.T) {
-	err := recoverOnPanic(func() {
-		Configure(map[string]string{"process": "2"})
-	})
+	err := Configure(Options{ProcessID: "2"})
 
-	assert.Error(t, err, "Configure requires a 'server' or 'sentinels' options, which identify either Redis instance or sentinels.")
+	assert.Error(t, err, "Configure requires either the Server or Sentinels option")
 }
 
 func TestRequiresProcessConfig(t *testing.T) {
-	err := recoverOnPanic(func() {
-		Configure(map[string]string{"server": "localhost:6379"})
-	})
+	err := Configure(Options{ServerAddr: "localhost:6379"})
 
-	assert.Error(t, err, "Configure requires a 'process' option, which uniquely identifies this instance")
+	assert.Error(t, err, "Configure requires a ProcessID, which uniquely identifies this instance")
 }
 
 func TestAddsColonToNamespace(t *testing.T) {
-	Configure(map[string]string{
-		"server":  "localhost:6379",
-		"process": "1",
+	Configure(Options{
+		ServerAddr: "localhost:6379",
+		ProcessID:  "1",
 	})
 	assert.Equal(t, "", Config.Namespace)
 
-	Configure(map[string]string{
-		"server":    "localhost:6379",
-		"process":   "1",
-		"namespace": "prod",
+	Configure(Options{
+		ServerAddr: "localhost:6379",
+		ProcessID:  "1",
+		Namespace:  "prod",
 	})
 	assert.Equal(t, "prod:", Config.Namespace)
 }
 
-func TestDefaultPoolIntervalConfig(t *testing.T) {
-	Configure(map[string]string{
-		"server":  "localhost:6379",
-		"process": "1",
+func TestDefaultPollIntervalConfig(t *testing.T) {
+	Configure(Options{
+		ServerAddr: "localhost:6379",
+		ProcessID:  "1",
 	})
 
 	assert.Equal(t, 15, Config.PollInterval)
 
-	Configure(map[string]string{
-		"server":        "localhost:6379",
-		"process":       "1",
-		"poll_interval": "1",
+	Configure(Options{
+		ServerAddr:   "localhost:6379",
+		ProcessID:    "1",
+		PollInterval: 1,
 	})
 
 	assert.Equal(t, 1, Config.PollInterval)
 }
 
 func TestSentinelConfig(t *testing.T) {
-	Configure(map[string]string{
-		"sentinels":     "localhost:26379,localhost:46379",
-		"process":       "1",
-		"poll_interval": "1",
+	Configure(Options{
+		SentinelAddrs: "localhost:26379,localhost:46379",
+		ProcessID:     "1",
+		PollInterval:  1,
 	})
 
 	assert.Equal(t, "FailoverClient", Config.Client.Options().Addr)

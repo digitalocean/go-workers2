@@ -39,15 +39,15 @@ func myMiddleware(queue string, next JobFunc) JobFunc {
 }
 
 func main() {
-  workers.Configure(map[string]string{
+  workers.Configure(Options{
     // location of redis instance
-    "server":  "localhost:6379",
+    ServerAddr: "localhost:6379",
     // instance of the database
-    "database":  "0",
+    Database:   0,
     // number of connections to keep open with redis
-    "pool":    "30",
+    PoolSize:   30,
     // unique process id for this instance of workers (for proper recovery of inprogress jobs on crash)
-    "process": "1",
+    ProcessID:  "1",
   })
 
   // create a middleware chain with the default middlewares, and append myMiddleware
