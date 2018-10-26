@@ -24,9 +24,10 @@ type Options struct {
 	Password     string
 	PoolSize     int
 
-	// Provide one of ServerAddr or SentinelAddrs
-	ServerAddr    string
-	SentinelAddrs string
+	// Provide one of ServerAddr or (SentinelAddrs + RedisMasterName)
+	ServerAddr      string
+	SentinelAddrs   string
+	RedisMasterName string
 }
 
 var Config *config
@@ -58,12 +59,17 @@ func Configure(options Options) error {
 			Addr:        options.ServerAddr,
 		})
 	} else if options.SentinelAddrs != "" {
+		if options.RedisMasterName == "" {
+			return errors.New("Sentinel configuration requires a master name")
+		}
+
 		rc = redis.NewFailoverClient(&redis.FailoverOptions{
 			IdleTimeout:   redisIdleTimeout,
 			Password:      options.Password,
 			DB:            options.Database,
 			PoolSize:      options.PoolSize,
 			SentinelAddrs: strings.Split(options.SentinelAddrs, ","),
+			MasterName:    options.RedisMasterName,
 		})
 	} else {
 		return errors.New("Configure requires either the Server or Sentinels option")
