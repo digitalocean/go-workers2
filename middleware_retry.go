@@ -14,7 +14,7 @@ const (
 	RetryTimeFormat = "2006-01-02 15:04:05 MST"
 )
 
-func retryProcessError(queue string, message *Msg, err error) error {
+func retryProcessError(queue string, mgr *Manager, message *Msg, err error) error {
 	if retry(message) {
 		message.Set("queue", queue)
 		message.Set("error_message", fmt.Sprintf("%v", err))
@@ -26,8 +26,8 @@ func retryProcessError(queue string, message *Msg, err error) error {
 			) * time.Second,
 		)
 
-		rc := Config.Client
-		_, err = rc.ZAdd(Config.Namespace+RETRY_KEY, redis.Z{
+		rc := mgr.opts.client
+		_, err = rc.ZAdd(mgr.RetryQueue(), redis.Z{
 			Score:  nowToSecondsWithNanoPrecision() + waitDuration,
 			Member: message.ToJson(),
 		}).Result()
@@ -42,7 +42,7 @@ func retryProcessError(queue string, message *Msg, err error) error {
 	return err
 }
 
-func RetryMiddleware(queue string, next JobFunc) JobFunc {
+func RetryMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 	return func(message *Msg) (err error) {
 		defer func() {
 			if e := recover(); e != nil {
@@ -52,7 +52,7 @@ func RetryMiddleware(queue string, next JobFunc) JobFunc {
 				}
 
 				if err != nil {
-					err = retryProcessError(queue, message, err)
+					err = retryProcessError(queue, mgr, message, err)
 				}
 			}
 
@@ -60,7 +60,7 @@ func RetryMiddleware(queue string, next JobFunc) JobFunc {
 
 		err = next(message)
 		if err != nil {
-			err = retryProcessError(queue, message, err)
+			err = retryProcessError(queue, mgr, message, err)
 		}
 
 		return

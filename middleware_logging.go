@@ -2,11 +2,15 @@ package workers
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"runtime"
 	"time"
 )
 
-func LogMiddleware(queue string, next JobFunc) JobFunc {
+var Logger WorkersLogger = log.New(os.Stdout, "workers: ", log.Ldate|log.Lmicroseconds)
+
+func LogMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 	return func(message *Msg) (err error) {
 		prefix := fmt.Sprint(queue, " JID-", message.Jid())
 

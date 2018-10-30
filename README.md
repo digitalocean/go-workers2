@@ -29,7 +29,7 @@ func myJob(message *workers.Msg) error {
   return nil
 }
 
-func myMiddleware(queue string, next JobFunc) JobFunc {
+func myMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
   return func(message *workers.Msg) (err error) {
     // do something before each message is processed
     err = next()
@@ -39,7 +39,8 @@ func myMiddleware(queue string, next JobFunc) JobFunc {
 }
 
 func main() {
-  workers.Configure(Options{
+  // Create a manager, which manages workers
+  manager, err := workers.NewManager(Options{
     // location of redis instance
     ServerAddr: "localhost:6379",
     // instance of the database
@@ -54,28 +55,43 @@ func main() {
   mids := workers.DefaultMiddlewares().Append(myMiddleware)
 
   // pull messages from "myqueue" with concurrency of 10
-  // this processor will not run myMiddleware, but will run the default middlewares
-  workers.Process("myqueue", myJob, 10)
+  // this worker will not run myMiddleware, but will run the default middlewares
+  manager.AddWorker("myqueue", myJob, 10)
 
   // pull messages from "myqueue2" with concurrency of 20
-  // this processor will run the default middlewares and myMiddleware
-  workers.Process("myqueue2", myJob, 20, mids...)
+  // this worker will run the default middlewares and myMiddleware
+  manager.AddWorker("myqueue2", myJob, 20, mids...)
 
   // pull messages from "myqueue3" with concurrency of 20
-  // this processor will only run myMiddleware
-  workers.Process("myqueue3", myJob, 20, myMiddleware)
+  // this worker will only run myMiddleware
+  manager.AddWorker("myqueue3", myJob, 20, myMiddleware)
+
+  // Create a producer to enqueue messages
+  producer, err := workers.NewProducer(Options{
+    // location of redis instance
+    ServerAddr: "localhost:6379",
+    // instance of the database
+    Database:   0,
+    // number of connections to keep open with redis
+    PoolSize:   30,
+    // unique process id for this instance of workers (for proper recovery of inprogress jobs on crash)
+    ProcessID:  "1",
+  })
+  // Alternatively, if you already have a manager and want to enqueue
+  // to the same place:
+  producer := manager.Producer()
 
   // Add a job to a queue
-  workers.Enqueue("myqueue3", "Add", []int{1, 2})
+  producer.Enqueue("myqueue3", "Add", []int{1, 2})
 
   // Add a job to a queue with retry
-  workers.EnqueueWithOptions("myqueue3", "Add", []int{1, 2}, workers.EnqueueOptions{Retry: true})
+  producer.EnqueueWithOptions("myqueue3", "Add", []int{1, 2}, workers.EnqueueOptions{Retry: true})
 
   // stats will be available at http://localhost:8080/stats
-  go workers.StatsServer(8080)
+  go workers.StartStatsServer(8080)
 
   // Blocks until process is told to exit via unix signal
-  workers.Run()
+  manager.Run()
 }
 ```
 

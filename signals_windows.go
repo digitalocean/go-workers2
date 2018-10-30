@@ -1,19 +1,25 @@
 package workers
 
 import (
-	"os"
 	"os/signal"
 	"syscall"
 )
 
-func handleSignals() {
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+func (m *Manager) handleSignals() {
+	signal.Notify(m.signal, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(m.signal)
 
-	for sig := range signals {
+	for sig := range m.signal {
 		switch sig {
 		case syscall.SIGINT, syscall.SIGTERM:
-			Quit()
+			m.Stop()
+			// Don't stop more than once.
+			return
 		}
 	}
+}
+
+func (m *Manager) stopSignalHandler() {
+	signal.Stop(m.signal)
+	close(m.signal)
 }

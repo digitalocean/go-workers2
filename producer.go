@@ -14,6 +14,20 @@ const (
 	NanoSecondPrecision = 1000000000.0
 )
 
+type Producer struct {
+	opts Options
+}
+
+func NewProducer(options Options) (*Producer, error) {
+	options, err := processOptions(options)
+	if err != nil {
+		return nil, err
+	}
+	return &Producer{
+		opts: options,
+	}, nil
+}
+
 type EnqueueData struct {
 	Queue      string      `json:"queue,omitempty"`
 	Class      string      `json:"class"`
@@ -39,19 +53,19 @@ func generateJid() string {
 	return fmt.Sprintf("%x", b)
 }
 
-func Enqueue(queue, class string, args interface{}) (string, error) {
-	return EnqueueWithOptions(queue, class, args, EnqueueOptions{At: nowToSecondsWithNanoPrecision()})
+func (p *Producer) Enqueue(queue, class string, args interface{}) (string, error) {
+	return p.EnqueueWithOptions(queue, class, args, EnqueueOptions{At: nowToSecondsWithNanoPrecision()})
 }
 
-func EnqueueIn(queue, class string, in float64, args interface{}) (string, error) {
-	return EnqueueWithOptions(queue, class, args, EnqueueOptions{At: nowToSecondsWithNanoPrecision() + in})
+func (p *Producer) EnqueueIn(queue, class string, in float64, args interface{}) (string, error) {
+	return p.EnqueueWithOptions(queue, class, args, EnqueueOptions{At: nowToSecondsWithNanoPrecision() + in})
 }
 
-func EnqueueAt(queue, class string, at time.Time, args interface{}) (string, error) {
-	return EnqueueWithOptions(queue, class, args, EnqueueOptions{At: timeToSecondsWithNanoPrecision(at)})
+func (p *Producer) EnqueueAt(queue, class string, at time.Time, args interface{}) (string, error) {
+	return p.EnqueueWithOptions(queue, class, args, EnqueueOptions{At: timeToSecondsWithNanoPrecision(at)})
 }
 
-func EnqueueWithOptions(queue, class string, args interface{}, opts EnqueueOptions) (string, error) {
+func (p *Producer) EnqueueWithOptions(queue, class string, args interface{}, opts EnqueueOptions) (string, error) {
 	now := nowToSecondsWithNanoPrecision()
 	data := EnqueueData{
 		Queue:          queue,
@@ -68,17 +82,17 @@ func EnqueueWithOptions(queue, class string, args interface{}, opts EnqueueOptio
 	}
 
 	if now < opts.At {
-		err := enqueueAt(data.At, bytes)
+		err := p.enqueueAt(data.At, bytes)
 		return data.Jid, err
 	}
 
-	rc := Config.Client
+	rc := p.opts.client
 
-	_, err = rc.SAdd(Config.Namespace+"queues", queue).Result()
+	_, err = rc.SAdd(p.opts.Namespace+"queues", queue).Result()
 	if err != nil {
 		return "", err
 	}
-	queue = Config.Namespace + "queue:" + queue
+	queue = p.opts.Namespace + "queue:" + queue
 	_, err = rc.LPush(queue, bytes).Result()
 	if err != nil {
 		return "", err
@@ -87,15 +101,9 @@ func EnqueueWithOptions(queue, class string, args interface{}, opts EnqueueOptio
 	return data.Jid, nil
 }
 
-func enqueueAt(at float64, bytes []byte) error {
-	rc := Config.Client
-
-	_, err := rc.ZAdd(Config.Namespace+SCHEDULED_JOBS_KEY, redis.Z{Score: at, Member: bytes}).Result()
-	if err != nil {
-		return err
-	}
-
-	return nil
+func (p *Producer) enqueueAt(at float64, bytes []byte) error {
+	_, err := p.opts.client.ZAdd(p.opts.Namespace+scheduledJobsKey, redis.Z{Score: at, Member: bytes}).Result()
+	return err
 }
 
 func timeToSecondsWithNanoPrecision(t time.Time) float64 {

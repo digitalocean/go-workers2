@@ -26,7 +26,7 @@ type orderMiddleware struct {
 }
 
 func (m *orderMiddleware) f() MiddlewareFunc {
-	return func(queue string, next JobFunc) JobFunc {
+	return func(queue string, mgr *Manager, next JobFunc) JobFunc {
 		return func(message *Msg) (result error) {
 			*m.order = append(*m.order, m.name+" enter")
 			result = next(message)
@@ -47,7 +47,8 @@ func TestNewMiddlewares(t *testing.T) {
 	second := orderMiddleware{"m2", &order}
 	middlewares = NewMiddlewares(first.f(), second.f())
 
-	middlewares.build("myqueue", func(message *Msg) error {
+	message, _ := NewMsg("{\"foo\":\"bar\"}")
+	middlewares.build("myqueue", nil, func(message *Msg) error {
 		order = append(order, "job")
 		return nil
 	})(message)
@@ -69,7 +70,8 @@ func TestAppendMiddleware(t *testing.T) {
 	second := orderMiddleware{"m2", &order}
 	middleware := NewMiddlewares().Append(first.f()).Append(second.f())
 
-	middleware.build("myqueue", func(message *Msg) error {
+	message, _ := NewMsg("{\"foo\":\"bar\"}")
+	middleware.build("myqueue", nil, func(message *Msg) error {
 		order = append(order, "job")
 		return nil
 	})(message)
@@ -86,14 +88,14 @@ func TestAppendMiddleware(t *testing.T) {
 }
 
 func TestPrependMiddleware(t *testing.T) {
-	message, _ := NewMsg("{\"foo\":\"bar\"}")
 	order := make([]string, 0)
 	first := orderMiddleware{"m1", &order}
 	second := orderMiddleware{"m2", &order}
 
 	middleware := NewMiddlewares().Prepend(first.f()).Prepend(second.f())
 
-	middleware.build("myqueue", func(message *Msg) error {
+	message, _ := NewMsg("{\"foo\":\"bar\"}")
+	middleware.build("myqueue", nil, func(message *Msg) error {
 		order = append(order, "job")
 		return nil
 	})(message)

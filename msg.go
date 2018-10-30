@@ -11,8 +11,9 @@ type data struct {
 
 type Msg struct {
 	*data
-	original string
-	ack      bool
+	original  string
+	ack       bool
+	startedAt int64
 }
 
 type Args struct {
@@ -52,17 +53,22 @@ func (d *data) Equals(other interface{}) bool {
 }
 
 func NewMsg(content string) (*Msg, error) {
-	if d, err := newData(content); err != nil {
+	d, err := newData(content)
+	if err != nil {
 		return nil, err
-	} else {
-		return &Msg{d, content, true}, nil
 	}
+	return &Msg{
+		data:      d,
+		original:  content,
+		ack:       true,
+		startedAt: 0,
+	}, nil
 }
 
 func newData(content string) (*data, error) {
-	if json, err := simplejson.NewJson([]byte(content)); err != nil {
+	json, err := simplejson.NewJson([]byte(content))
+	if err != nil {
 		return nil, err
-	} else {
-		return &data{json}, nil
 	}
+	return &data{json}, nil
 }

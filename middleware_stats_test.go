@@ -11,8 +11,11 @@ import (
 
 func TestProcessedStats(t *testing.T) {
 	namespace := "prod"
-	setupTestConfigWithNamespace(namespace)
-	rc := Config.Client
+	opts, err := setupTestOptionsWithNamespace(namespace)
+	assert.NoError(t, err)
+	mgr := &Manager{opts: opts}
+
+	rc := opts.client
 
 	count, _ := rc.Get("prod:stat:processed").Result()
 	countInt, _ := strconv.ParseInt(count, 10, 64)
@@ -23,15 +26,11 @@ func TestProcessedStats(t *testing.T) {
 	dayCountInt, _ := strconv.ParseInt(dayCount, 10, 64)
 	assert.Equal(t, int64(0), dayCountInt)
 
-	var job = (func(message *Msg) error {
+	message, _ := NewMsg("{\"jid\":\"2\",\"retry\":true}")
+	NewMiddlewares(StatsMiddleware).build("myqueue", mgr, func(m *Msg) error {
 		// noop
 		return nil
-	})
-
-	manager := newManager("myqueue", job, 1)
-	worker := newWorker(manager)
-	message, _ := NewMsg("{\"jid\":\"2\",\"retry\":true}")
-	worker.process(message)
+	})(message)
 
 	count, _ = rc.Get("prod:stat:processed").Result()
 	countInt, _ = strconv.ParseInt(count, 10, 64)
@@ -43,20 +42,14 @@ func TestProcessedStats(t *testing.T) {
 }
 
 func TestFailedStats(t *testing.T) {
-	layout := "2006-01-02"
-	message, _ := NewMsg("{\"jid\":\"2\",\"retry\":true}")
-
 	namespace := "prod"
-	setupTestConfigWithNamespace(namespace)
+	opts, err := setupTestOptionsWithNamespace(namespace)
+	assert.NoError(t, err)
+	mgr := &Manager{opts: opts}
 
-	var job = (func(message *Msg) error {
-		panic(errors.New("AHHHH"))
-	})
+	rc := opts.client
 
-	manager := newManager("myqueue", job, 1)
-	worker := newWorker(manager)
-
-	rc := Config.Client
+	layout := "2006-01-02"
 
 	count, _ := rc.Get("prod:stat:failed").Result()
 	countInt, _ := strconv.ParseInt(count, 10, 64)
@@ -66,7 +59,13 @@ func TestFailedStats(t *testing.T) {
 	dayCountInt, _ := strconv.ParseInt(dayCount, 10, 64)
 	assert.Equal(t, int64(0), dayCountInt)
 
-	worker.process(message)
+	message, _ := NewMsg("{\"jid\":\"2\",\"retry\":true}")
+
+	var job = func(message *Msg) error {
+		panic(errors.New("AHHHH"))
+	}
+
+	NewMiddlewares(StatsMiddleware).build("myqueue", mgr, job)(message)
 
 	count, _ = rc.Get("prod:stat:failed").Result()
 	countInt, _ = strconv.ParseInt(count, 10, 64)

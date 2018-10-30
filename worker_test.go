@@ -1,193 +1,193 @@
 package workers
 
 import (
-	"errors"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
-var testMiddlewareCalled bool
-var failMiddlewareCalled bool
-
-func testMiddleware(queue string, next JobFunc) JobFunc {
-	return func(message *Msg) error {
-		testMiddlewareCalled = true
-		return next(message)
-	}
+type dummyFetcher struct {
+	queue       func() string
+	fetch       func()
+	acknowledge func(*Msg)
+	ready       func() chan bool
+	messages    func() chan *Msg
+	close       func()
+	closed      func() bool
 }
 
-func failMiddleware(queue string, next JobFunc) JobFunc {
-	return func(message *Msg) error {
-		failMiddlewareCalled = true
-		next(message)
-		message.ack = false
-		return errors.New("test error")
-	}
-}
-
-func confirm(manager *manager) (msg *Msg) {
-	time.Sleep(10 * time.Millisecond)
-
-	select {
-	case msg = <-manager.confirm:
-	default:
-	}
-
-	return
-}
+func (d dummyFetcher) Queue() string       { return d.queue() }
+func (d dummyFetcher) Fetch()              { d.fetch() }
+func (d dummyFetcher) Acknowledge(m *Msg)  { d.acknowledge(m) }
+func (d dummyFetcher) Ready() chan bool    { return d.ready() }
+func (d dummyFetcher) Messages() chan *Msg { return d.messages() }
+func (d dummyFetcher) Close()              { d.close() }
+func (d dummyFetcher) Closed() bool        { return d.closed() }
 
 func TestNewWorker(t *testing.T) {
-	setupTestConfig()
-	var processed = make(chan *Args)
+	cc := newCallCounter()
+	w := newWorker("q", 0, cc.F)
+	assert.Equal(t, "q", w.queue)
+	assert.Equal(t, 1, w.concurrency)
+	assert.NotNil(t, w.stop)
 
-	var testJob = (func(message *Msg) error {
-		processed <- message.Args()
-		return nil
-	})
+	assert.NotNil(t, w.handler)
+	w.handler(nil)
+	assert.Equal(t, 1, cc.count)
 
-	manager := newManager("myqueue", testJob, 1)
+	w = newWorker("q", -5, cc.F)
+	assert.Equal(t, 1, w.concurrency)
 
-	worker := newWorker(manager)
-	assert.Equal(t, manager, worker.manager)
+	w = newWorker("q", 10, cc.F)
+	assert.Equal(t, 10, w.concurrency)
 }
 
-func TestWork(t *testing.T) {
-	setupTestConfig()
+func TestWorker(t *testing.T) {
+	readyCh := make(chan bool)
+	msgCh := make(chan *Msg)
+	ackCh := make(chan *Msg)
+	fetchCh := make(chan bool)
 
-	var processed = make(chan *Args)
+	var dfClosedLock sync.Mutex
+	var dfClosed bool
+	df := dummyFetcher{
+		queue:       func() string { return "q" },
+		fetch:       func() { close(fetchCh) },
+		acknowledge: func(m *Msg) { ackCh <- m },
+		ready:       func() chan bool { return readyCh },
+		messages:    func() chan *Msg { return msgCh },
+		close: func() {
+			dfClosedLock.Lock()
+			defer dfClosedLock.Unlock()
+			dfClosed = true
+		},
+		closed: func() bool {
+			dfClosedLock.Lock()
+			defer dfClosedLock.Unlock()
+			return dfClosed
+		},
+	}
 
-	var testJob = (func(message *Msg) error {
-		processed <- message.Args()
-		return nil
+	cc := newCallCounter()
+
+	w := newWorker("q", 2, cc.F)
+
+	var wg sync.WaitGroup
+	go func() {
+		wg.Add(1)
+		w.start(df)
+		wg.Done()
+	}()
+
+	// This block delays until the entire worker is started.
+	// In order for a message to be consumed, at least one task runner
+	// must be started. We consume the message off of ackCh for sanity.
+	// Acquiring and then releasing the runnersLock ensures that start
+	// has finished its setup work
+
+	<-fetchCh // We should be sure that Fetch got called before providing any messages
+	msgCh <- cc.msg()
+	<-ackCh
+	w.runnersLock.Lock()
+	w.runnersLock.Unlock()
+
+	assert.True(t, w.running)
+	assert.Len(t, w.runners, 2)
+
+	t.Run("cannot start while running", func(t *testing.T) {
+		w.start(df)
+		// This test would time out if w.start doesn't return immediately
 	})
 
-	manager := newManager("myqueue", testJob, 1)
+	t.Run(".inProgressMessages", func(t *testing.T) {
 
-	worker := newWorker(manager)
-	messages := make(chan *Msg)
-	message, _ := NewMsg("{\"jid\":\"2309823\",\"args\":[\"foo\",\"bar\"]}")
+		// None running
+		msgs := w.inProgressMessages()
+		assert.Empty(t, msgs)
 
-	//calls job with message args
-	go worker.work(messages)
-	messages <- message
+		// Enqueue one
+		msgCh <- cc.syncMsg()
+		<-cc.syncCh
+		msgs = w.inProgressMessages()
+		assert.Len(t, msgs, 1)
 
-	args, _ := (<-processed).Array()
-	<-manager.confirm
+		// Enqueue another
+		msgCh <- cc.syncMsg()
+		<-cc.syncCh
+		msgs = w.inProgressMessages()
+		assert.Len(t, msgs, 2)
 
-	assert.Equal(t, 2, len(args))
-	assert.Equal(t, "foo", args[0])
-	assert.Equal(t, "bar", args[1])
+		// allow one to finish
+		cc.ackSyncCh <- true
+		<-ackCh
+		msgs = w.inProgressMessages()
+		assert.Len(t, msgs, 1)
 
-	worker.quit()
+		// alow the other to finish
+		cc.ackSyncCh <- true
+		<-ackCh
+		msgs = w.inProgressMessages()
+		assert.Empty(t, msgs)
+	})
 
-	//confirms job completed
-	go worker.work(messages)
-	messages <- message
+	w.quit()
+	wg.Wait()
 
-	<-processed
-	assert.Equal(t, message, confirm(manager))
-
-	worker.quit()
 }
 
-func TestWork_middlewares(t *testing.T) {
-	setupTestConfig()
+func TestWorkerProcessesAndAcksMessages(t *testing.T) {
+	readyCh := make(chan bool)
+	msgCh := make(chan *Msg)
+	ackCh := make(chan *Msg)
+	closeCh := make(chan bool)
 
-	var processed = make(chan *Args)
+	df := dummyFetcher{
+		queue:       func() string { return "q" },
+		fetch:       func() { <-closeCh },
+		acknowledge: func(m *Msg) { ackCh <- m },
+		ready:       func() chan bool { return readyCh },
+		messages:    func() chan *Msg { return msgCh },
+		close:       func() { close(closeCh) },
+		closed: func() bool {
+			select {
+			case <-closeCh:
+				return true
+			default:
+				return false
+			}
+		},
+	}
 
-	var testJob = (func(message *Msg) error {
-		processed <- message.Args()
-		return nil
-	})
+	cc := newCallCounter()
+	w := newWorker("q", 1, cc.F)
 
-	// runs defined middleware and confirms
-	mids := DefaultMiddlewares().Append(testMiddleware)
+	var wg sync.WaitGroup
 
-	manager := newManager("myqueue", testJob, 1, mids...)
+	go func() {
+		wg.Add(1)
+		w.start(df)
+		wg.Done()
+	}()
 
-	worker := newWorker(manager)
-	messages := make(chan *Msg)
-	message, _ := NewMsg("{\"jid\":\"2309823\",\"args\":[\"foo\",\"bar\"]}")
+	// since we have concurrency 1, messages _must_ be processed in order
 
-	go worker.work(messages)
-	messages <- message
+	msgCh <- cc.msg()
+	ackedMsg := <-ackCh
+	assert.True(t, ackedMsg.ack)
+	assert.NotZero(t, ackedMsg.startedAt)
+	assert.Equal(t, 1, cc.count)
 
-	<-processed
-	assert.Equal(t, message, confirm(manager))
-	assert.True(t, testMiddlewareCalled)
+	noAck := cc.noAckMsg()
+	msgCh <- noAck
+	msgCh <- cc.msg()
+	ackedMsg = <-ackCh
+	assert.False(t, noAck.ack)
+	assert.NotZero(t, noAck.startedAt)
+	assert.True(t, ackedMsg.ack)
+	assert.NotZero(t, ackedMsg.startedAt)
+	assert.Equal(t, 3, cc.count)
 
-	worker.quit()
-}
-
-func TestFailMiddleware(t *testing.T) {
-	setupTestConfig()
-
-	var processed = make(chan *Args)
-	var testJob = (func(message *Msg) error {
-		processed <- message.Args()
-		return nil
-	})
-
-	//doesn't confirm if middleware cancels acknowledgement
-	mids := DefaultMiddlewares().Append(failMiddleware)
-
-	manager := newManager("myqueue", testJob, 1, mids...)
-	worker := newWorker(manager)
-	messages := make(chan *Msg)
-	message, _ := NewMsg("{\"jid\":\"2309823\",\"args\":[\"foo\",\"bar\"]}")
-
-	go worker.work(messages)
-	messages <- message
-
-	<-processed
-	assert.Nil(t, confirm(manager))
-	assert.True(t, failMiddlewareCalled)
-
-	worker.quit()
-}
-
-func TestRecoverWithPanic(t *testing.T) {
-	setupTestConfig()
-
-	//recovers and confirms if job panics
-	var panicJob = (func(message *Msg) error {
-		panic(errors.New("AHHHHHHHHH"))
-	})
-
-	manager := newManager("myqueue", panicJob, 1)
-	worker := newWorker(manager)
-
-	messages := make(chan *Msg)
-	message, _ := NewMsg("{\"jid\":\"2309823\",\"args\":[\"foo\",\"bar\"],\"retry\":true}")
-
-	go worker.work(messages)
-	messages <- message
-
-	assert.Equal(t, message, confirm(manager))
-
-	worker.quit()
-}
-
-func TestRecoverWithError(t *testing.T) {
-	setupTestConfig()
-
-	//recovers and confirms if job panics
-	var panicJob = (func(message *Msg) error {
-		return errors.New("AHHHHHHHHH")
-	})
-
-	manager := newManager("myqueue", panicJob, 1)
-	worker := newWorker(manager)
-
-	messages := make(chan *Msg)
-	message, _ := NewMsg("{\"jid\":\"2309823\",\"args\":[\"foo\",\"bar\"],\"retry\":true}")
-
-	go worker.work(messages)
-	messages <- message
-
-	assert.Equal(t, message, confirm(manager))
-
-	worker.quit()
+	w.quit()
+	wg.Wait()
 }

@@ -7,6 +7,7 @@ require (
 	github.com/go-redis/redis v6.14.1+incompatible
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/onsi/gomega v1.4.2 // indirect
+	github.com/pborman/uuid v1.2.0
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/stretchr/testify v1.2.2
 )

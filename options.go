@@ -8,14 +8,6 @@ import (
 	"github.com/go-redis/redis"
 )
 
-type config struct {
-	processId    string
-	Namespace    string
-	PollInterval int
-	Client       *redis.Client
-	Fetch        func(queue string) Fetcher
-}
-
 type Options struct {
 	ProcessID    string
 	Namespace    string
@@ -28,13 +20,16 @@ type Options struct {
 	ServerAddr      string
 	SentinelAddrs   string
 	RedisMasterName string
+
+	// Optional display name used when displaying manager stats
+	ManagerDisplayName string
+
+	client *redis.Client
 }
 
-var Config *config
-
-func Configure(options Options) error {
+func processOptions(options Options) (Options, error) {
 	if options.ProcessID == "" {
-		return errors.New("Configure requires a ProcessID, which uniquely identifies this instance")
+		return Options{}, errors.New("Options requires a ProcessID, which uniquely identifies this instance")
 	}
 
 	if options.Namespace != "" {
@@ -49,9 +44,8 @@ func Configure(options Options) error {
 
 	redisIdleTimeout := 240 * time.Second
 
-	var rc *redis.Client
 	if options.ServerAddr != "" {
-		rc = redis.NewClient(&redis.Options{
+		options.client = redis.NewClient(&redis.Options{
 			IdleTimeout: redisIdleTimeout,
 			Password:    options.Password,
 			DB:          options.Database,
@@ -60,10 +54,10 @@ func Configure(options Options) error {
 		})
 	} else if options.SentinelAddrs != "" {
 		if options.RedisMasterName == "" {
-			return errors.New("Sentinel configuration requires a master name")
+			return Options{}, errors.New("Sentinel configuration requires a master name")
 		}
 
-		rc = redis.NewFailoverClient(&redis.FailoverOptions{
+		options.client = redis.NewFailoverClient(&redis.FailoverOptions{
 			IdleTimeout:   redisIdleTimeout,
 			Password:      options.Password,
 			DB:            options.Database,
@@ -72,17 +66,7 @@ func Configure(options Options) error {
 			MasterName:    options.RedisMasterName,
 		})
 	} else {
-		return errors.New("Configure requires either the Server or Sentinels option")
+		return Options{}, errors.New("Options requires either the Server or Sentinels option")
 	}
-
-	Config = &config{
-		processId:    options.ProcessID,
-		Namespace:    options.Namespace,
-		PollInterval: options.PollInterval,
-		Client:       rc,
-		Fetch: func(queue string) Fetcher {
-			return NewFetch(queue, make(chan *Msg), make(chan bool))
-		},
-	}
-	return nil
+	return options, nil
 }
