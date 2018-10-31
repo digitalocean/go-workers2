@@ -9,10 +9,6 @@ func BeforeStart(f func()) {
 	beforeStart = append(beforeStart, f)
 }
 
-// func AfterStart
-// func BeforeQuit
-// func AfterQuit
-
 func DuringDrain(f func()) {
 	access.Lock()
 	defer access.Unlock()
