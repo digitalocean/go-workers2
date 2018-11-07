@@ -8,41 +8,43 @@ import (
 	"github.com/go-redis/redis"
 )
 
-type scheduled struct {
-	keys   []string
-	closed chan bool
-	exit   chan bool
+// TODO(wtlangford): Check if the value of these keys are Sidekiq-compatible
+const (
+	retryKey         = "goretry"
+	scheduledJobsKey = "schedule"
+)
+
+type scheduledWorker struct {
+	opts Options
+	keys []string
+	done chan bool
 }
 
-func (s *scheduled) start() {
-	go (func() {
-		for {
-			select {
-			case <-s.closed:
-				return
-			default:
-			}
-
-			s.poll()
-
-			time.Sleep(time.Duration(Config.PollInterval) * time.Second)
+func (s *scheduledWorker) run() {
+	for {
+		select {
+		case <-s.done:
+			return
+		default:
 		}
-	})()
+
+		s.poll()
+
+		time.Sleep(time.Duration(s.opts.PollInterval) * time.Second)
+	}
 }
 
-func (s *scheduled) quit() {
-	close(s.closed)
+func (s *scheduledWorker) quit() {
+	close(s.done)
 }
 
-func (s *scheduled) poll() {
-	rc := Config.Client
-
+func (s *scheduledWorker) poll() {
 	now := nowToSecondsWithNanoPrecision()
 
 	for _, key := range s.keys {
-		key = Config.Namespace + key
+		key = s.opts.Namespace + key
 		for {
-			messages, _ := rc.ZRangeByScore(key, redis.ZRangeBy{
+			messages, _ := s.opts.client.ZRangeByScore(key, redis.ZRangeBy{
 				Min:    "-inf",
 				Max:    strconv.FormatFloat(now, 'f', -1, 64),
 				Offset: 0,
@@ -55,16 +57,20 @@ func (s *scheduled) poll() {
 
 			message, _ := NewMsg(messages[0])
 
-			if removed, _ := rc.ZRem(key, messages[0]).Result(); removed != 0 {
+			if removed, _ := s.opts.client.ZRem(key, messages[0]).Result(); removed != 0 {
 				queue, _ := message.Get("queue").String()
-				queue = strings.TrimPrefix(queue, Config.Namespace)
+				queue = strings.TrimPrefix(queue, s.opts.Namespace)
 				message.Set("enqueued_at", nowToSecondsWithNanoPrecision())
-				rc.LPush(Config.Namespace+"queue:"+queue, message.ToJson()).Result()
+				s.opts.client.LPush(s.opts.Namespace+"queue:"+queue, message.ToJson()).Result()
 			}
 		}
 	}
 }
 
-func newScheduled(keys ...string) *scheduled {
-	return &scheduled{keys, make(chan bool), make(chan bool)}
+func newScheduledWorker(opts Options) *scheduledWorker {
+	return &scheduledWorker{
+		opts: opts,
+		keys: []string{retryKey, scheduledJobsKey},
+		done: make(chan bool),
+	}
 }

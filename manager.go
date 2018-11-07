@@ -1,118 +1,141 @@
 package workers
 
 import (
-	"strings"
+	"os"
 	"sync"
+
+	"github.com/pborman/uuid"
 )
 
-type manager struct {
-	queue       string
-	fetch       Fetcher
-	handler     JobFunc
-	concurrency int
-	workers     []*worker
-	workersM    *sync.Mutex
-	confirm     chan *Msg
-	stop        chan bool
-	exit        chan bool
-	*sync.WaitGroup
+type Manager struct {
+	uuid     string
+	opts     Options
+	schedule *scheduledWorker
+	workers  []*worker
+	lock     sync.Mutex
+	signal   chan os.Signal
+	running  bool
+
+	beforeStartHooks []func()
+	duringDrainHooks []func()
 }
 
-func (m *manager) start() {
-	m.Add(1)
-	m.loadWorkers()
-	go m.manage()
-}
-
-func (m *manager) prepare() {
-	if !m.fetch.Closed() {
-		m.fetch.Close()
+func NewManager(options Options) (*Manager, error) {
+	options, err := processOptions(options)
+	if err != nil {
+		return nil, err
 	}
+	return &Manager{
+		uuid: uuid.New(),
+		opts: options,
+	}, nil
 }
 
-func (m *manager) quit() {
-	Logger.Println("quitting queue", m.queueName(), "(waiting for", m.processing(), "/", len(m.workers), "workers).")
-	m.prepare()
+func (m *Manager) AddWorker(queue string, concurrency int, job JobFunc, mids ...MiddlewareFunc) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
-	m.workersM.Lock()
-	for _, worker := range m.workers {
-		worker.quit()
-	}
-	m.workersM.Unlock()
-
-	m.stop <- true
-	<-m.exit
-
-	m.reset()
-
-	m.Done()
-}
-
-func (m *manager) manage() {
-	Logger.Println("processing queue", m.queueName(), "with", m.concurrency, "workers.")
-
-	go m.fetch.Fetch()
-
-	for {
-		select {
-		case message := <-m.confirm:
-			m.fetch.Acknowledge(message)
-		case <-m.stop:
-			m.exit <- true
-			break
-		}
-	}
-}
-
-func (m *manager) loadWorkers() {
-	m.workersM.Lock()
-	for i := 0; i < m.concurrency; i++ {
-		m.workers[i] = newWorker(m)
-		m.workers[i].start()
-	}
-	m.workersM.Unlock()
-}
-
-func (m *manager) processing() (count int) {
-	m.workersM.Lock()
-	for _, worker := range m.workers {
-		if worker.processing() {
-			count++
-		}
-	}
-	m.workersM.Unlock()
-	return
-}
-
-func (m *manager) queueName() string {
-	return strings.Replace(m.queue, "queue:", "", 1)
-}
-
-func (m *manager) reset() {
-	m.fetch = Config.Fetch(m.queue)
-}
-
-func newManager(queue string, job JobFunc, concurrency int, mids ...MiddlewareFunc) *manager {
-	middlewareQueueName := Config.Namespace + queue
+	middlewareQueueName := m.opts.Namespace + queue
 	if len(mids) == 0 {
-		job = DefaultMiddlewares().build(middlewareQueueName, job)
+		job = DefaultMiddlewares().build(middlewareQueueName, m, job)
 	} else {
-		job = NewMiddlewares(mids...).build(middlewareQueueName, job)
+		job = NewMiddlewares(mids...).build(middlewareQueueName, m, job)
 	}
-	m := &manager{
-		Config.Namespace + "queue:" + queue,
-		nil,
-		job,
-		concurrency,
-		make([]*worker, concurrency),
-		&sync.Mutex{},
-		make(chan *Msg),
-		make(chan bool),
-		make(chan bool),
-		&sync.WaitGroup{},
+	m.workers = append(m.workers, newWorker(queue, concurrency, job))
+}
+
+func (m *Manager) AddBeforeStartHooks(hooks ...func()) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.beforeStartHooks = append(m.beforeStartHooks, hooks...)
+}
+
+func (m *Manager) AddDuringDrainHooks(hooks ...func()) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.duringDrainHooks = append(m.duringDrainHooks, hooks...)
+}
+
+// Run starts all workers under this Manager and blocks until they exit.
+func (m *Manager) Run() {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if m.running {
+		return // Can't start if we're already running!
+	}
+	m.running = true
+
+	for _, h := range m.beforeStartHooks {
+		h()
 	}
 
-	m.fetch = Config.Fetch(m.queue)
+	globalStatsServer.registerManager(m)
 
-	return m
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	m.signal = make(chan os.Signal, 1)
+	go func() {
+		m.handleSignals()
+		wg.Done()
+	}()
+
+	wg.Add(len(m.workers))
+	for i := range m.workers {
+		w := m.workers[i]
+		go func() {
+			w.start(newSimpleFetcher(w.queue, m.opts))
+			wg.Done()
+		}()
+	}
+	m.schedule = newScheduledWorker(m.opts)
+
+	wg.Add(1)
+	go func() {
+		m.schedule.run()
+		wg.Done()
+	}()
+
+	// Release the lock so that Stop can acquire it
+	m.lock.Unlock()
+	wg.Wait()
+	// Regain the lock
+	m.lock.Lock()
+	globalStatsServer.deregisterManager(m)
+	m.running = false
+}
+
+// Stop all workers under this Manager and returns immediately.
+func (m *Manager) Stop() {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if !m.running {
+		return
+	}
+	for _, w := range m.workers {
+		w.quit()
+	}
+	m.schedule.quit()
+	for _, h := range m.duringDrainHooks {
+		h()
+	}
+	m.stopSignalHandler()
+}
+
+func (m *Manager) inProgressMessages() map[string][]*Msg {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	res := map[string][]*Msg{}
+	for _, w := range m.workers {
+		res[w.queue] = append(res[w.queue], w.inProgressMessages()...)
+	}
+	return res
+}
+
+func (m *Manager) RetryQueue() string {
+	return m.opts.Namespace + retryKey
+}
+
+func (m *Manager) Producer() *Producer {
+	return &Producer{opts: m.opts}
 }

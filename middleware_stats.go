@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func StatsMiddleware(queue string, next JobFunc) JobFunc {
+func StatsMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 	return func(message *Msg) (err error) {
 		defer func() {
 			if e := recover(); e != nil {
@@ -15,7 +15,7 @@ func StatsMiddleware(queue string, next JobFunc) JobFunc {
 				}
 
 				if err != nil {
-					incrementStats("failed")
+					incrementStats(mgr, "failed")
 				}
 			}
 
@@ -23,23 +23,23 @@ func StatsMiddleware(queue string, next JobFunc) JobFunc {
 
 		err = next(message)
 		if err != nil {
-			incrementStats("failed")
+			incrementStats(mgr, "failed")
 		} else {
-			incrementStats("processed")
+			incrementStats(mgr, "processed")
 		}
 
 		return
 	}
 }
 
-func incrementStats(metric string) {
-	rc := Config.Client
+func incrementStats(mgr *Manager, metric string) {
+	rc := mgr.opts.client
 
 	today := time.Now().UTC().Format("2006-01-02")
 
 	pipe := rc.Pipeline()
-	pipe.Incr(Config.Namespace + "stat:" + metric)
-	pipe.Incr(Config.Namespace + "stat:" + metric + ":" + today)
+	pipe.Incr(mgr.opts.Namespace + "stat:" + metric)
+	pipe.Incr(mgr.opts.Namespace + "stat:" + metric + ":" + today)
 
 	if _, err := pipe.Exec(); err != nil {
 		Logger.Println("couldn't save stats:", err)

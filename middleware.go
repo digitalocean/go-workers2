@@ -2,7 +2,7 @@ package workers
 
 type JobFunc func(message *Msg) error
 
-type MiddlewareFunc func(queue string, next JobFunc) JobFunc
+type MiddlewareFunc func(queue string, m *Manager, next JobFunc) JobFunc
 
 type Middlewares []MiddlewareFunc
 
@@ -14,9 +14,9 @@ func (m Middlewares) Prepend(mid MiddlewareFunc) Middlewares {
 	return append(Middlewares{mid}, m...)
 }
 
-func (ms Middlewares) build(queue string, final JobFunc) JobFunc {
+func (ms Middlewares) build(queue string, mgr *Manager, final JobFunc) JobFunc {
 	for i := len(ms) - 1; i >= 0; i-- {
-		final = ms[i](queue, final)
+		final = ms[i](queue, mgr, final)
 	}
 	return final
 }
@@ -37,6 +37,6 @@ func DefaultMiddlewares() Middlewares {
 }
 
 // NopMiddleware does nothing
-func NopMiddleware(queue string, final JobFunc) JobFunc {
+func NopMiddleware(queue string, mgr *Manager, final JobFunc) JobFunc {
 	return final
 }

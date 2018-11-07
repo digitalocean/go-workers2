@@ -1,7 +1,6 @@
 package workers
 
 import (
-	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -9,225 +8,293 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type customMid struct {
-	trace      []string
-	base       string
-	mutex      sync.Mutex
-	timesBuilt int
-}
-
-func (m *customMid) AsMiddleware() MiddlewareFunc {
-	return func(queue string, next JobFunc) JobFunc {
-		m.mutex.Lock()
-		defer m.mutex.Unlock()
-		m.timesBuilt += 1
-		return func(message *Msg) (err error) {
-			m.mutex.Lock()
-			defer m.mutex.Unlock()
-
-			m.trace = append(m.trace, m.base+"1")
-			err = next(message)
-			m.trace = append(m.trace, m.base+"2")
-			return
-		}
+func newTestManager(opts Options) (*Manager, error) {
+	mgr, err := NewManager(opts)
+	if mgr != nil {
+		mgr.opts.client.FlushDB().Result()
 	}
-}
-
-func (m *customMid) Trace() []string {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	t := make([]string, len(m.trace))
-	copy(t, m.trace)
-
-	return t
+	return mgr, err
 }
 
 func TestNewManager(t *testing.T) {
 	namespace := "prod"
-	setupTestConfigWithNamespace(namespace)
+	opts := testOptionsWithNamespace(namespace)
+	mgr, err := NewManager(opts)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, mgr.uuid)
+	assert.Equal(t, namespace+":", mgr.opts.Namespace)
+}
 
-	processed := make(chan *Args)
-	testJob := (func(message *Msg) error {
-		processed <- message.Args()
-		return nil
+func TestManager_AddBeforeStartHooks(t *testing.T) {
+	namespace := "prod"
+	opts := testOptionsWithNamespace(namespace)
+	opts.PollInterval = 1
+	mgr, err := newTestManager(opts)
+	assert.NoError(t, err)
+	var beforeStartCalled int
+	mgr.AddBeforeStartHooks(func() {
+		beforeStartCalled++
 	})
-
-	//sets queue with namespace
-	manager := newManager("myqueue", testJob, 10)
-	assert.Equal(t, "prod:queue:myqueue", manager.queue)
-
-	//sets job function
-	manager = newManager("myqueue", testJob, 10, NopMiddleware)
-
-	f1 := reflect.ValueOf(manager.handler)
-	f2 := reflect.ValueOf(testJob)
-	assert.Equal(t, f1.Pointer(), f2.Pointer())
-
-	//sets worker concurrency
-	manager = newManager("myqueue", testJob, 10)
-	assert.Equal(t, 10, manager.concurrency)
-
-	mid1 := &customMid{base: "0"}
-	oldMiddlewares := defaultMiddlewares
-	defer func() {
-		defaultMiddlewares = oldMiddlewares
+	ch := make(chan bool)
+	go func() {
+		mgr.Run()
+		ch <- true
+		mgr.Run()
+		ch <- true
 	}()
-	defaultMiddlewares = NewMiddlewares(mid1.AsMiddleware())
-
-	//no per-manager middleware means 'use global Middleware object
-	manager = newManager("myqueue", testJob, 10)
-	assert.Equal(t, mid1.timesBuilt, 1)
-
-	//per-manager middlewares create separate middleware chains
-	mid2 := &customMid{base: "0"}
-	manager = newManager("myqueue", testJob, 10, mid2.AsMiddleware())
-	assert.Equal(t, mid1.timesBuilt, 1) // Make sure it doesn't use the defaults
-	assert.Equal(t, mid2.timesBuilt, 1)
+	time.Sleep(time.Second)
+	assert.Equal(t, 1, beforeStartCalled)
+	mgr.Stop()
+	<-ch
+	time.Sleep(time.Second)
+	assert.Equal(t, 2, beforeStartCalled)
+	mgr.Stop()
+	<-ch
 }
 
-var message, _ = NewMsg("{\"foo\":\"bar\",\"args\":[\"foo\",\"bar\"]}")
-var message2, _ = NewMsg("{\"foo\":\"bar2\",\"args\":[\"foo\",\"bar2\"]}")
-
-func TestQueueProcessing(t *testing.T) {
+func TestManager_AddDuringDrainHooks(t *testing.T) {
 	namespace := "prod"
-	setupTestConfigWithNamespace(namespace)
-	rc := Config.Client
+	opts := testOptionsWithNamespace(namespace)
+	opts.PollInterval = 1
+	mgr, err := newTestManager(opts)
+	assert.NoError(t, err)
+	var duringDrainCalled int
+	mgr.AddDuringDrainHooks(func() {
+		duringDrainCalled++
+	})
+	ch := make(chan bool)
+	go func() {
+		mgr.Run()
+		ch <- true
+		mgr.Run()
+		ch <- true
+	}()
+	time.Sleep(time.Second)
+	mgr.Stop()
+	assert.Equal(t, 1, duringDrainCalled)
+	<-ch
+	time.Sleep(time.Second)
+	mgr.Stop()
+	assert.Equal(t, 2, duringDrainCalled)
+	<-ch
+}
 
-	processed := make(chan *Args)
-	testJob := (func(message *Msg) error {
-		processed <- message.Args()
+func TestManager_AddWorker(t *testing.T) {
+	namespace := "prod"
+	opts := testOptionsWithNamespace(namespace)
+	opts.PollInterval = 1
+	mgr, err := NewManager(opts)
+	assert.NoError(t, err)
+
+	var handlerCalled bool
+	var defaultMidCalled bool
+
+	baseMids := defaultMiddlewares
+	defaultMiddlewares = NewMiddlewares(
+		func(queue string, mgr *Manager, next JobFunc) JobFunc {
+			return func(message *Msg) (result error) {
+				defaultMidCalled = true
+				result = next(message)
+				return
+			}
+		},
+	)
+	mgr.AddWorker("someq", 1, func(m *Msg) error {
+		handlerCalled = true
 		return nil
 	})
+	assert.Len(t, mgr.workers, 1)
+	assert.Equal(t, "someq", mgr.workers[0].queue)
 
-	manager := newManager("manager1", testJob, 1)
+	msg, _ := NewMsg("{}")
 
-	rc.LPush("prod:queue:manager1", message.ToJson()).Result()
-	rc.LPush("prod:queue:manager1", message2.ToJson()).Result()
+	mgr.workers[0].handler(msg)
+	assert.True(t, defaultMidCalled)
+	assert.True(t, handlerCalled)
 
-	manager.start()
+	var midCalled bool
 
-	actual := <-processed
-	assert.Equal(t, message.Args().ToJson(), actual.ToJson())
-	actual = <-processed
-	assert.Equal(t, message2.Args().ToJson(), actual.ToJson())
-
-	manager.quit()
-
-	len, _ := rc.LLen("prod:queue:manager1").Result()
-	assert.Equal(t, int64(0), len)
-}
-
-func TestDrainQueueOnExit(t *testing.T) {
-	namespace := "prod"
-	setupTestConfigWithNamespace(namespace)
-	rc := Config.Client
-
-	processed := make(chan *Args)
-
-	sentinel, _ := NewMsg("{\"foo\":\"bar2\",\"args\":\"sentinel\"}")
-
-	drained := false
-
-	slowJob := (func(message *Msg) error {
-		if message.ToJson() == sentinel.ToJson() {
-			drained = true
-		} else {
-			processed <- message.Args()
+	mgr.workers = nil
+	mgr.AddWorker("someq", 1, func(m *Msg) error {
+		handlerCalled = true
+		return nil
+	}, func(queue string, mgr *Manager, next JobFunc) JobFunc {
+		return func(message *Msg) (result error) {
+			midCalled = true
+			result = next(message)
+			return
 		}
-
-		time.Sleep(1 * time.Second)
-
-		return nil
 	})
-	manager := newManager("manager1", slowJob, 10)
 
-	for i := 0; i < 9; i++ {
-		rc.LPush("prod:queue:manager1", message.ToJson()).Result()
-	}
-	rc.LPush("prod:queue:manager1", sentinel.ToJson()).Result()
+	defaultMidCalled = false
+	handlerCalled = false
 
-	manager.start()
-	for i := 0; i < 9; i++ {
-		<-processed
-	}
-	manager.quit()
+	mgr.workers[0].handler(msg)
+	assert.False(t, defaultMidCalled)
+	assert.True(t, midCalled)
+	assert.True(t, handlerCalled)
 
-	len, _ := rc.LLen("prod:queue:manager1").Result()
-	assert.Equal(t, int64(0), len)
-	assert.True(t, drained)
+	defaultMiddlewares = baseMids
 }
 
-func TestMultiMiddleware(t *testing.T) {
-	//per-manager middlwares are called separately, global middleware is called in each manager
+func TestManager_RetryQueue(t *testing.T) {
 	namespace := "prod"
-	setupTestConfigWithNamespace(namespace)
-	rc := Config.Client
-
-	processed := make(chan *Args)
-
-	testJob := (func(message *Msg) error {
-		processed <- message.Args()
-		return nil
-	})
-
-	mid1 := &customMid{base: "1"}
-	mid2 := &customMid{base: "2"}
-	mid3 := &customMid{base: "3"}
-
-	oldMiddlewares := defaultMiddlewares
-	defer func() {
-		defaultMiddlewares = oldMiddlewares
-	}()
-	defaultMiddlewares = NewMiddlewares(mid1.AsMiddleware())
-
-	manager1 := newManager("manager1", testJob, 10)
-	manager2 := newManager("manager2", testJob, 10, mid2.AsMiddleware())
-	manager3 := newManager("manager3", testJob, 10, mid3.AsMiddleware())
-
-	rc.LPush("prod:queue:manager1", message.ToJson()).Result()
-	rc.LPush("prod:queue:manager2", message.ToJson()).Result()
-	rc.LPush("prod:queue:manager3", message.ToJson()).Result()
-
-	manager1.start()
-	manager2.start()
-	manager3.start()
-
-	<-processed
-	<-processed
-	<-processed
-
-	assert.Equal(t, []string{"11", "12"}, mid1.Trace())
-	assert.Equal(t, []string{"21", "22"}, mid2.Trace())
-	assert.Equal(t, []string{"31", "32"}, mid3.Trace())
-
-	manager1.quit()
-	manager2.quit()
-	manager3.quit()
+	opts := testOptionsWithNamespace(namespace)
+	mgr, err := newTestManager(opts)
+	assert.NoError(t, err)
+	assert.Equal(t, "prod:goretry", mgr.RetryQueue())
 }
 
-func TestStopFetching(t *testing.T) {
-	//prepare stops fetching new messages from queue
-	namespace := "prodstop:"
-	setupTestConfigWithNamespace(namespace)
-	rc := Config.Client
+func TestManager_Run(t *testing.T) {
+	namespace := "mgrruntest"
+	opts := testOptionsWithNamespace(namespace)
+	opts.PollInterval = 1
+	mgr, err := newTestManager(opts)
+	assert.NoError(t, err)
+	prod := mgr.Producer()
 
-	processed := make(chan *Args)
-	testJob := (func(message *Msg) error {
-		processed <- message.Args()
-		return nil
-	})
+	q1cc := newCallCounter()
+	q2cc := newCallCounter()
+	mgr.AddWorker("queue1", 1, q1cc.F, NopMiddleware)
+	mgr.AddWorker("queue2", 2, q2cc.F, NopMiddleware)
 
-	manager := newManager("manager2", testJob, 10)
-	manager.start()
+	var wg sync.WaitGroup
+	go func() {
+		wg.Add(1)
+		mgr.Run()
+		wg.Done()
+	}()
 
-	manager.prepare()
+	// Test that messages process
+	_, err = prod.Enqueue("queue1", "any", q1cc.syncMsg().Args().Interface())
+	assert.NoError(t, err)
+	// This channel read will timeout the test if messages don't process
+	<-q1cc.syncCh
+	q1cc.ackSyncCh <- true
 
-	rc.LPush("prodstop:queue:manager2", message.ToJson()).Result()
-	rc.LPush("prodstop:queue:manager2", message2.ToJson()).Result()
+	// Test that the manager is registered in the stats server
+	assert.Contains(t, globalStatsServer.managers, mgr.uuid)
 
-	manager.quit()
+	// Test that it runs a scheduledWorker
+	_, err = prod.EnqueueIn("queue1", "any", 2, q1cc.syncMsg().Args().Interface())
+	assert.NoError(t, err)
+	// This channel read will timeout the test if the scheduled message doesn't process
+	<-q1cc.syncCh
+	q1cc.ackSyncCh <- true
 
-	len, _ := rc.LLen("prodstop:queue:manager2").Result()
-	assert.Equal(t, int64(2), len)
+	mgr.Stop()
+	wg.Wait()
+
+	// Test that the manager is deregistered from the stats server
+	assert.NotContains(t, globalStatsServer.managers, mgr.uuid)
+
+	// Test that we can restart the manager
+	go func() {
+		wg.Add(1)
+		mgr.Run()
+		wg.Done()
+	}()
+
+	// Test that messages process
+	_, err = prod.Enqueue("queue1", "any", q1cc.syncMsg().Args().Interface())
+	assert.NoError(t, err)
+	// This channel read will timeout the test if messages don't process, which
+	// means the manager didn't restart
+	<-q1cc.syncCh
+	q1cc.ackSyncCh <- true
+
+	// Test that we're back in the global stats server
+	assert.Contains(t, globalStatsServer.managers, mgr.uuid)
+
+	mgr.Stop()
+	wg.Wait()
+
+}
+
+func TestManager_inProgressMessages(t *testing.T) {
+	namespace := "mgrruntest"
+	opts := testOptionsWithNamespace(namespace)
+	opts.PollInterval = 1
+	mgr, err := newTestManager(opts)
+	assert.NoError(t, err)
+	prod, err := NewProducer(opts)
+	assert.NoError(t, err)
+
+	q1cc := newCallCounter()
+	q2cc := newCallCounter()
+	mgr.AddWorker("queue1", 1, q1cc.F, NopMiddleware)
+	mgr.AddWorker("queue2", 2, q2cc.F, NopMiddleware)
+
+	var wg sync.WaitGroup
+	go func() {
+		wg.Add(1)
+		mgr.Run()
+		wg.Done()
+	}()
+
+	// None
+	ipm := mgr.inProgressMessages()
+	assert.Len(t, ipm, 2)
+	assert.Contains(t, ipm, "queue1")
+	assert.Contains(t, ipm, "queue2")
+	assert.Empty(t, ipm["queue1"])
+	assert.Empty(t, ipm["queue2"])
+
+	// One in Queue1
+	_, err = prod.Enqueue("queue1", "any", q1cc.syncMsg().Args().Interface())
+	assert.NoError(t, err)
+	<-q1cc.syncCh
+	ipm = mgr.inProgressMessages()
+	assert.Len(t, ipm, 2)
+	assert.Contains(t, ipm, "queue1")
+	assert.Contains(t, ipm, "queue2")
+	assert.Len(t, ipm["queue1"], 1)
+	assert.Empty(t, ipm["queue2"])
+
+	// One in Queue2
+	_, err = prod.Enqueue("queue2", "any", q2cc.syncMsg().Args().Interface())
+	assert.NoError(t, err)
+	<-q2cc.syncCh
+	ipm = mgr.inProgressMessages()
+	assert.Len(t, ipm, 2)
+	assert.Contains(t, ipm, "queue1")
+	assert.Contains(t, ipm, "queue2")
+	assert.Len(t, ipm["queue1"], 1)
+	assert.Len(t, ipm["queue2"], 1)
+
+	// Another in Queue2
+	_, err = prod.Enqueue("queue2", "any", q2cc.syncMsg().Args().Interface())
+	assert.NoError(t, err)
+	<-q2cc.syncCh
+	ipm = mgr.inProgressMessages()
+	assert.Len(t, ipm, 2)
+	assert.Contains(t, ipm, "queue1")
+	assert.Contains(t, ipm, "queue2")
+	assert.Len(t, ipm["queue1"], 1)
+	assert.Len(t, ipm["queue2"], 2)
+
+	// Release two from Queue2
+	q2cc.ackSyncCh <- true
+	q2cc.ackSyncCh <- true
+
+	time.Sleep(2 * time.Second)
+	ipm = mgr.inProgressMessages()
+	assert.Len(t, ipm, 2)
+	assert.Contains(t, ipm, "queue1")
+	assert.Contains(t, ipm, "queue2")
+	assert.Len(t, ipm["queue1"], 1)
+	assert.Len(t, ipm["queue2"], 0)
+
+	// Release last from Queue1 - should have one left in queue2
+	q1cc.ackSyncCh <- true
+	time.Sleep(2 * time.Second)
+	ipm = mgr.inProgressMessages()
+	assert.Len(t, ipm, 2)
+	assert.Contains(t, ipm, "queue1")
+	assert.Contains(t, ipm, "queue2")
+	assert.Len(t, ipm["queue1"], 0)
+	assert.Len(t, ipm["queue2"], 0)
+
+	mgr.Stop()
+	wg.Wait()
 }
