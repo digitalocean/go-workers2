@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"github.com/go-redis/redis"
 	"os"
 	"sync"
 
@@ -29,6 +30,10 @@ func NewManager(options Options) (*Manager, error) {
 		uuid: uuid.New(),
 		opts: options,
 	}, nil
+}
+
+func (m *Manager) GetRedisClient() *redis.Client {
+	return m.opts.client
 }
 
 func (m *Manager) AddWorker(queue string, concurrency int, job JobFunc, mids ...MiddlewareFunc) {

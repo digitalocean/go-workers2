@@ -18,16 +18,6 @@ type Producer struct {
 	opts Options
 }
 
-func NewProducer(options Options) (*Producer, error) {
-	options, err := processOptions(options)
-	if err != nil {
-		return nil, err
-	}
-	return &Producer{
-		opts: options,
-	}, nil
-}
-
 type EnqueueData struct {
 	Queue      string      `json:"queue,omitempty"`
 	Class      string      `json:"class"`
@@ -43,14 +33,18 @@ type EnqueueOptions struct {
 	At         float64 `json:"at,omitempty"`
 }
 
-func generateJid() string {
-	// Return 12 random bytes as 24 character hex
-	b := make([]byte, 12)
-	_, err := io.ReadFull(rand.Reader, b)
+func NewProducer(options Options) (*Producer, error) {
+	options, err := processOptions(options)
 	if err != nil {
-		return ""
+		return nil, err
 	}
-	return fmt.Sprintf("%x", b)
+	return &Producer{
+		opts: options,
+	}, nil
+}
+
+func (p *Producer) GetRedisClient() *redis.Client {
+	return p.opts.client
 }
 
 func (p *Producer) Enqueue(queue, class string, args interface{}) (string, error) {
@@ -116,4 +110,14 @@ func durationToSecondsWithNanoPrecision(d time.Duration) float64 {
 
 func nowToSecondsWithNanoPrecision() float64 {
 	return timeToSecondsWithNanoPrecision(time.Now())
+}
+
+func generateJid() string {
+	// Return 12 random bytes as 24 character hex
+	b := make([]byte, 12)
+	_, err := io.ReadFull(rand.Reader, b)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%x", b)
 }
