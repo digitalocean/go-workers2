@@ -43,6 +43,16 @@ func NewProducer(options Options) (*Producer, error) {
 	}, nil
 }
 
+func NewProducerWithRedisClient(options Options, client *redis.Client) (*Producer, error) {
+	options, err := processOptionsWithRedisClient(options, client)
+	if err != nil {
+		return nil, err
+	}
+	return &Producer{
+		opts: options,
+	}, nil
+}
+
 func (p *Producer) GetRedisClient() *redis.Client {
 	return p.opts.client
 }

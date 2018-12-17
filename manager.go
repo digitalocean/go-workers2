@@ -34,6 +34,17 @@ func NewManager(options Options) (*Manager, error) {
 	}, nil
 }
 
+func NewManagerWithRedisClient(options Options, client *redis.Client) (*Manager, error) {
+	options, err := processOptionsWithRedisClient(options, client)
+	if err != nil {
+		return nil, err
+	}
+	return &Manager{
+		uuid: uuid.New(),
+		opts: options,
+	}, nil
+}
+
 func (m *Manager) GetRedisClient() *redis.Client {
 	return m.opts.client
 }

@@ -1,10 +1,12 @@
 package workers
 
 import (
+	"crypto/tls"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-redis/redis"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -23,6 +25,50 @@ func TestNewManager(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, mgr.uuid)
 	assert.Equal(t, namespace+":", mgr.opts.Namespace)
+}
+
+func TestNewManagerWithRedisClient(t *testing.T) {
+	namespace := "prod"
+	opts := Options{
+		ProcessID: "1",
+		Namespace: namespace,
+	}
+
+	client := redis.NewClient(&redis.Options{
+		IdleTimeout: 1,
+		Password:    "ab",
+		DB:          2,
+		TLSConfig:   &tls.Config{ServerName: "test_tls2"},
+	})
+
+	mgr, err := NewManagerWithRedisClient(opts, client)
+
+	assert.NoError(t, err)
+	assert.NotEmpty(t, mgr.uuid)
+	assert.Equal(t, namespace+":", mgr.opts.Namespace)
+
+	assert.NotNil(t, mgr.GetRedisClient())
+	assert.NotNil(t, mgr.GetRedisClient().Options().TLSConfig)
+	assert.Equal(t, "test_tls2", mgr.GetRedisClient().Options().TLSConfig.ServerName)
+}
+
+func TestNewManagerWithRedisClientNoProcessID(t *testing.T) {
+	namespace := "prod"
+	opts := Options{
+		Namespace: namespace,
+	}
+
+	client := redis.NewClient(&redis.Options{
+		IdleTimeout: 1,
+		Password:    "ab",
+		DB:          2,
+		TLSConfig:   &tls.Config{ServerName: "test_tls2"},
+	})
+
+	mgr, err := NewManagerWithRedisClient(opts, client)
+
+	assert.Error(t, err)
+	assert.Nil(t, mgr)
 }
 
 func TestManager_AddBeforeStartHooks(t *testing.T) {

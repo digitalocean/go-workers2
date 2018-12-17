@@ -1,9 +1,11 @@
 package workers
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"testing"
 
+	"github.com/go-redis/redis"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -153,4 +155,47 @@ func TestMultipleEnqueueOrder(t *testing.T) {
 	len, err = rc.LLen("prod:queue:testq1").Result()
 	assert.NoError(t, err)
 	assert.Equal(t, int64(0), len)
+}
+
+func TestNewProducerWithRedisClient(t *testing.T) {
+	namespace := "prod"
+	opts := Options{
+		ProcessID: "1",
+		Namespace: namespace,
+	}
+
+	client := redis.NewClient(&redis.Options{
+		IdleTimeout: 1,
+		Password:    "ab",
+		DB:          2,
+		TLSConfig:   &tls.Config{ServerName: "test_tls3"},
+	})
+
+	producer, err := NewProducerWithRedisClient(opts, client)
+
+	assert.NoError(t, err)
+	assert.Equal(t, namespace+":", producer.opts.Namespace)
+
+	assert.NotNil(t, producer.GetRedisClient())
+	assert.NotNil(t, producer.GetRedisClient().Options().TLSConfig)
+	assert.Equal(t, "test_tls3", producer.GetRedisClient().Options().TLSConfig.ServerName)
+}
+
+func TestNewProducerWithRedisClientNoProcessID(t *testing.T) {
+	namespace := "prod"
+	opts := Options{
+		Namespace: namespace,
+	}
+
+	client := redis.NewClient(&redis.Options{
+		IdleTimeout: 1,
+		Password:    "ab",
+		DB:          2,
+		TLSConfig:   &tls.Config{ServerName: "test_tls2"},
+	})
+
+	mgr, err := NewProducerWithRedisClient(opts, client)
+
+	assert.Error(t, err)
+	assert.Nil(t, mgr)
 }

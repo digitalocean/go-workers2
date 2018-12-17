@@ -30,20 +30,15 @@ type Options struct {
 }
 
 func processOptions(options Options) (Options, error) {
-	if options.ProcessID == "" {
-		return Options{}, errors.New("Options requires a ProcessID, which uniquely identifies this instance")
+	options, err := validateGeneralOptions(options)
+	if err != nil {
+		return Options{}, err
 	}
 
-	if options.Namespace != "" {
-		options.Namespace += ":"
-	}
+	//redis options
 	if options.PoolSize == 0 {
 		options.PoolSize = 1
 	}
-	if options.PollInterval <= 0 {
-		options.PollInterval = 15
-	}
-
 	redisIdleTimeout := 240 * time.Second
 
 	if options.ServerAddr != "" {
@@ -72,5 +67,35 @@ func processOptions(options Options) (Options, error) {
 	} else {
 		return Options{}, errors.New("Options requires either the Server or Sentinels option")
 	}
+	return options, nil
+}
+
+func processOptionsWithRedisClient(options Options, client *redis.Client) (Options, error) {
+	options, err := validateGeneralOptions(options)
+	if err != nil {
+		return Options{}, err
+	}
+
+	if client == nil {
+		return Options{}, errors.New("Redis client is nil; Redis client is not configured.")
+	}
+
+	options.client = client
+	return options, nil
+}
+
+func validateGeneralOptions(options Options) (Options, error) {
+	if options.ProcessID == "" {
+		return Options{}, errors.New("Options requires a ProcessID, which uniquely identifies this instance")
+	}
+
+	if options.Namespace != "" {
+		options.Namespace += ":"
+	}
+
+	if options.PollInterval <= 0 {
+		options.PollInterval = 15
+	}
+
 	return options, nil
 }
