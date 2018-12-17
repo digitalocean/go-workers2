@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"crypto/tls"
 	"errors"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ type Options struct {
 	ServerAddr      string
 	SentinelAddrs   string
 	RedisMasterName string
+	RedisTLSConfig  *tls.Config
 
 	// Optional display name used when displaying manager stats
 	ManagerDisplayName string
@@ -51,6 +53,7 @@ func processOptions(options Options) (Options, error) {
 			DB:          options.Database,
 			PoolSize:    options.PoolSize,
 			Addr:        options.ServerAddr,
+			TLSConfig:   options.RedisTLSConfig,
 		})
 	} else if options.SentinelAddrs != "" {
 		if options.RedisMasterName == "" {
@@ -64,6 +67,7 @@ func processOptions(options Options) (Options, error) {
 			PoolSize:      options.PoolSize,
 			SentinelAddrs: strings.Split(options.SentinelAddrs, ","),
 			MasterName:    options.RedisMasterName,
+			TLSConfig:     options.RedisTLSConfig,
 		})
 	} else {
 		return Options{}, errors.New("Options requires either the Server or Sentinels option")
