@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"crypto/tls"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,6 +25,28 @@ func TestRedisPoolConfig(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, 20, opts.client.Options().PoolSize)
+}
+
+func TestRedisPoolConfigTLS(t *testing.T) {
+	opts, err := processOptions(Options{
+		ServerAddr: "localhost:6379",
+		ProcessID:  "1",
+		PoolSize:   20,
+	})
+
+	assert.NoError(t, err)
+	assert.Nil(t, opts.client.Options().TLSConfig)
+
+	opts, err = processOptions(Options{
+		ServerAddr:     "localhost:6379",
+		ProcessID:      "1",
+		PoolSize:       20,
+		RedisTLSConfig: &tls.Config{ServerName: "test_tls"},
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, opts.client.Options().TLSConfig)
+	assert.Equal(t, "test_tls", opts.client.Options().TLSConfig.ServerName)
 }
 
 func TestCustomProcessConfig(t *testing.T) {
@@ -104,6 +127,22 @@ func TestSentinelConfigGood(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, "FailoverClient", opts.client.Options().Addr)
+	assert.Nil(t, opts.client.Options().TLSConfig)
+}
+
+func TestSentinelConfigGoodTLS(t *testing.T) {
+	opts, err := processOptions(Options{
+		SentinelAddrs:   "localhost:26379,localhost:46379",
+		RedisMasterName: "123",
+		ProcessID:       "1",
+		PollInterval:    1,
+		RedisTLSConfig:  &tls.Config{ServerName: "test_tls"},
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, "FailoverClient", opts.client.Options().Addr)
+	assert.NotNil(t, opts.client.Options().TLSConfig)
+	assert.Equal(t, "test_tls", opts.client.Options().TLSConfig.ServerName)
 }
 
 func TestSentinelConfigNoMaster(t *testing.T) {
