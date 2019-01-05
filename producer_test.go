@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/digitalocean/go-workers2/storage"
 	"github.com/go-redis/redis"
 	"github.com/stretchr/testify/assert"
 )
@@ -14,6 +15,7 @@ func TestProducer_Enqueue(t *testing.T) {
 	opts, err := setupTestOptionsWithNamespace(namespace)
 	assert.NoError(t, err)
 	rc := opts.client
+
 	p := &Producer{opts: opts}
 
 	//makes the queue available
@@ -87,9 +89,10 @@ func TestProducer_EnqueueIn(t *testing.T) {
 	opts, err := setupTestOptionsWithNamespace(namespace)
 	assert.NoError(t, err)
 	rc := opts.client
+
 	p := &Producer{opts: opts}
 
-	scheduleQueue := namespace + ":" + scheduledJobsKey
+	scheduleQueue := namespace + ":" + storage.ScheduledJobsKey
 
 	//has added a job in the scheduled queue
 	_, err = p.EnqueueIn("enqueuein1", "Compare", 10, map[string]interface{}{"foo": "bar"})
@@ -121,6 +124,7 @@ func TestMultipleEnqueueOrder(t *testing.T) {
 	opts, err := setupTestOptionsWithNamespace(namespace)
 	assert.NoError(t, err)
 	rc := opts.client
+
 	p := &Producer{opts: opts}
 
 	var msg1, _ = NewMsg("{\"key\":\"1\"}")

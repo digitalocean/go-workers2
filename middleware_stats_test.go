@@ -13,6 +13,7 @@ func TestProcessedStats(t *testing.T) {
 	namespace := "prod"
 	opts, err := setupTestOptionsWithNamespace(namespace)
 	assert.NoError(t, err)
+
 	mgr := &Manager{opts: opts}
 
 	rc := opts.client
@@ -45,6 +46,7 @@ func TestFailedStats(t *testing.T) {
 	namespace := "prod"
 	opts, err := setupTestOptionsWithNamespace(namespace)
 	assert.NoError(t, err)
+
 	mgr := &Manager{opts: opts}
 
 	rc := opts.client

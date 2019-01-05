@@ -1,9 +1,7 @@
 package workers
 
 import (
-	"fmt"
 	"os"
-	"strconv"
 	"sync"
 
 	"github.com/go-redis/redis"
@@ -28,6 +26,7 @@ func NewManager(options Options) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &Manager{
 		uuid: uuid.New().String(),
 		opts: options,
@@ -39,6 +38,7 @@ func NewManagerWithRedisClient(options Options, client *redis.Client) (*Manager,
 	if err != nil {
 		return nil, err
 	}
+
 	return &Manager{
 		uuid: uuid.New().String(),
 		opts: options,
@@ -150,10 +150,6 @@ func (m *Manager) inProgressMessages() map[string][]*Msg {
 	return res
 }
 
-func (m *Manager) RetryQueue() string {
-	return m.opts.Namespace + retryKey
-}
-
 func (m *Manager) Producer() *Producer {
 	return &Producer{opts: m.opts}
 }
@@ -164,14 +160,10 @@ func (m *Manager) GetStats() (Stats, error) {
 		Enqueued: map[string]int64{},
 		Name:     m.opts.ManagerDisplayName,
 	}
-	pipe := m.opts.client.Pipeline()
+	var q []string
+
 	inProgress := m.inProgressMessages()
 	ns := m.opts.Namespace
-
-	pGet := pipe.Get(ns + "stat:processed")
-	fGet := pipe.Get(ns + "stat:failed")
-	rGet := pipe.ZCard(m.RetryQueue())
-	qLen := map[string]*redis.IntCmd{}
 
 	for queue, msgs := range inProgress {
 		var jobs []JobStatus
@@ -182,20 +174,21 @@ func (m *Manager) GetStats() (Stats, error) {
 			})
 		}
 		stats.Jobs[ns+queue] = jobs
-		qLen[ns+queue] = pipe.LLen(fmt.Sprintf("%squeue:%s", ns, queue))
+		q = append(q, queue)
 	}
 
-	_, err := pipe.Exec()
+	storeStats, err := m.opts.store.GetStats(q)
 
 	if err != nil && err != redis.Nil {
 		return stats, err
 	}
-	stats.Processed, _ = strconv.ParseInt(pGet.Val(), 10, 64)
-	stats.Failed, _ = strconv.ParseInt(fGet.Val(), 10, 64)
-	stats.Retries = rGet.Val()
 
-	for q, l := range qLen {
-		stats.Enqueued[q] = l.Val()
+	stats.Processed = storeStats.Processed
+	stats.Failed = storeStats.Failed
+	stats.Retries = storeStats.Retries
+
+	for q, l := range stats.Enqueued {
+		stats.Enqueued[q] = l
 	}
 
 	return stats, nil

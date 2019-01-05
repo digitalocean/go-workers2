@@ -38,6 +38,7 @@ func NewProducer(options Options) (*Producer, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &Producer{
 		opts: options,
 	}, nil
@@ -48,6 +49,7 @@ func NewProducerWithRedisClient(options Options, client *redis.Client) (*Produce
 	if err != nil {
 		return nil, err
 	}
+
 	return &Producer{
 		opts: options,
 	}, nil
@@ -86,28 +88,21 @@ func (p *Producer) EnqueueWithOptions(queue, class string, args interface{}, opt
 	}
 
 	if now < opts.At {
-		err := p.enqueueAt(data.At, bytes)
+		err = p.opts.store.ScheduleMessage(data.At, string(bytes))
 		return data.Jid, err
 	}
 
-	rc := p.opts.client
-
-	_, err = rc.SAdd(p.opts.Namespace+"queues", queue).Result()
+	err = p.opts.store.CreateQueue(queue)
 	if err != nil {
 		return "", err
 	}
-	queue = p.opts.Namespace + "queue:" + queue
-	_, err = rc.LPush(queue, bytes).Result()
+
+	err = p.opts.store.EnqueueMessageNow(queue, string(bytes))
 	if err != nil {
 		return "", err
 	}
 
 	return data.Jid, nil
-}
-
-func (p *Producer) enqueueAt(at float64, bytes []byte) error {
-	_, err := p.opts.client.ZAdd(p.opts.Namespace+scheduledJobsKey, redis.Z{Score: at, Member: bytes}).Result()
-	return err
 }
 
 func timeToSecondsWithNanoPrecision(t time.Time) float64 {

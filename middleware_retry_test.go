@@ -37,12 +37,13 @@ func TestRetryQueue(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			opts, err := setupTestOptionsWithNamespace("prod")
 			assert.NoError(t, err)
+
 			mgr := &Manager{opts: opts}
 
 			// Test panic
 			wares.build("myqueue", mgr, tt.f)(message)
 
-			retries, _ := opts.client.ZRange(mgr.RetryQueue(), 0, 1).Result()
+			retries, _ := opts.client.ZRange(retryQueue(opts.Namespace), 0, 1).Result()
 			assert.Len(t, retries, 1)
 			assert.Equal(t, message.ToJson(), retries[0])
 		})
@@ -52,19 +53,21 @@ func TestRetryQueue(t *testing.T) {
 func TestDisableRetries(t *testing.T) {
 	opts, err := setupTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
+
 	mgr := &Manager{opts: opts}
 
 	message, _ := NewMsg("{\"jid\":\"2\",\"retry\":false}")
 
 	wares.build("myqueue", mgr, panickingFunc)(message)
 
-	count, _ := opts.client.ZCard(mgr.RetryQueue()).Result()
+	count, _ := opts.client.ZCard(retryQueue(opts.Namespace)).Result()
 	assert.Equal(t, int64(0), count)
 }
 
 func TestNoDefaultRetry(t *testing.T) {
 	opts, err := setupTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
+
 	mgr := &Manager{opts: opts}
 
 	//puts messages in retry queue when they fail
@@ -72,33 +75,35 @@ func TestNoDefaultRetry(t *testing.T) {
 
 	wares.build("myqueue", mgr, panickingFunc)(message)
 
-	count, _ := opts.client.ZCard(mgr.RetryQueue()).Result()
+	count, _ := opts.client.ZCard(retryQueue(opts.Namespace)).Result()
 	assert.Equal(t, int64(0), count)
 }
 
 func TestNumericRetries(t *testing.T) {
 	opts, err := setupTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
+
 	mgr := &Manager{opts: opts}
 
 	message, _ := NewMsg("{\"jid\":\"2\",\"retry\":5}")
 
 	wares.build("myqueue", mgr, panickingFunc)(message)
 
-	retries, _ := opts.client.ZRange(mgr.RetryQueue(), 0, 1).Result()
+	retries, _ := opts.client.ZRange(retryQueue(opts.Namespace), 0, 1).Result()
 	assert.Equal(t, message.ToJson(), retries[0])
 }
 
 func TestHandleNewFailedMessages(t *testing.T) {
 	opts, err := setupTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
+
 	mgr := &Manager{opts: opts}
 
 	message, _ := NewMsg("{\"jid\":\"2\",\"retry\":true}")
 
 	wares.build("prod:myqueue", mgr, panickingFunc)(message)
 
-	retries, _ := opts.client.ZRange(mgr.RetryQueue(), 0, 1).Result()
+	retries, _ := opts.client.ZRange(retryQueue(opts.Namespace), 0, 1).Result()
 	message, _ = NewMsg(retries[0])
 
 	queue, _ := message.Get("queue").String()
@@ -121,6 +126,7 @@ func TestHandleNewFailedMessages(t *testing.T) {
 func TestRecurringFailedMessages(t *testing.T) {
 	opts, err := setupTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
+
 	mgr := &Manager{opts: opts}
 
 	layout := "2006-01-02 15:04:05 MST"
@@ -129,7 +135,7 @@ func TestRecurringFailedMessages(t *testing.T) {
 
 	wares.build("prod:myqueue", mgr, panickingFunc)(message)
 
-	retries, _ := opts.client.ZRange(mgr.RetryQueue(), 0, 1).Result()
+	retries, _ := opts.client.ZRange(retryQueue(opts.Namespace), 0, 1).Result()
 	message, _ = NewMsg(retries[0])
 
 	queue, _ := message.Get("queue").String()
@@ -148,6 +154,7 @@ func TestRecurringFailedMessages(t *testing.T) {
 func TestRecurringFailedMessagesWithMax(t *testing.T) {
 	opts, err := setupTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
+
 	mgr := &Manager{opts: opts}
 
 	layout := "2006-01-02 15:04:05 MST"
@@ -156,7 +163,7 @@ func TestRecurringFailedMessagesWithMax(t *testing.T) {
 
 	wares.build("prod:myqueue", mgr, panickingFunc)(message)
 
-	retries, _ := opts.client.ZRange(mgr.RetryQueue(), 0, 1).Result()
+	retries, _ := opts.client.ZRange(retryQueue(opts.Namespace), 0, 1).Result()
 	message, _ = NewMsg(retries[0])
 
 	queue, _ := message.Get("queue").String()
@@ -175,25 +182,27 @@ func TestRecurringFailedMessagesWithMax(t *testing.T) {
 func TestRetryOnlyToMax(t *testing.T) {
 	opts, err := setupTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
+
 	mgr := &Manager{opts: opts}
 
 	message, _ := NewMsg("{\"jid\":\"2\",\"retry\":true,\"retry_count\":25}")
 
 	wares.build("prod:myqueue", mgr, panickingFunc)(message)
 
-	count, _ := opts.client.ZCard(mgr.RetryQueue()).Result()
+	count, _ := opts.client.ZCard(retryQueue(opts.Namespace)).Result()
 	assert.Equal(t, int64(0), count)
 }
 
 func TestRetryOnlyToCustomMax(t *testing.T) {
 	opts, err := setupTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
+
 	mgr := &Manager{opts: opts}
 
 	message, _ := NewMsg("{\"jid\":\"2\",\"retry\":3,\"retry_count\":3}")
 
 	wares.build("prod:myqueue", mgr, panickingFunc)(message)
 
-	count, _ := opts.client.ZCard(mgr.RetryQueue()).Result()
+	count, _ := opts.client.ZCard(retryQueue(opts.Namespace)).Result()
 	assert.Equal(t, int64(0), count)
 }

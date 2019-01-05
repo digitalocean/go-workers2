@@ -183,14 +183,6 @@ func TestManager_AddWorker(t *testing.T) {
 	defaultMiddlewares = baseMids
 }
 
-func TestManager_RetryQueue(t *testing.T) {
-	namespace := "prod"
-	opts := testOptionsWithNamespace(namespace)
-	mgr, err := newTestManager(opts)
-	assert.NoError(t, err)
-	assert.Equal(t, "prod:goretry", mgr.RetryQueue())
-}
-
 func TestManager_Run(t *testing.T) {
 	namespace := "mgrruntest"
 	opts := testOptionsWithNamespace(namespace)
