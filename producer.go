@@ -88,7 +88,7 @@ func (p *Producer) EnqueueWithOptions(queue, class string, args interface{}, opt
 	}
 
 	if now < opts.At {
-		err = p.opts.store.ScheduleMessage(data.At, string(bytes))
+		err = p.opts.store.EnqueueScheduledMessage(data.At, string(bytes))
 		return data.Jid, err
 	}
 

@@ -32,7 +32,7 @@ func (s *scheduledWorker) poll() {
 	now := nowToSecondsWithNanoPrecision()
 
 	for {
-		rawMessage, err := s.opts.store.FetchScheduledMessage(now)
+		rawMessage, err := s.opts.store.DequeueScheduledMessage(now)
 
 		if err != nil {
 			break
@@ -47,7 +47,7 @@ func (s *scheduledWorker) poll() {
 	}
 
 	for {
-		rawMessage, err := s.opts.store.FetchRetriedMessage(now)
+		rawMessage, err := s.opts.store.DequeueRetriedMessage(now)
 
 		if err != nil {
 			break

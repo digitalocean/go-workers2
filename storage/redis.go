@@ -26,7 +26,7 @@ func NewRedisStore(namespace string, client *redis.Client) Store {
 	}
 }
 
-func (r *redisStore) FetchMessage(queue string, inprogressQueue string, timeout time.Duration) (string, error) {
+func (r *redisStore) DequeueMessage(queue string, inprogressQueue string, timeout time.Duration) (string, error) {
 	message, err := r.client.BRPopLPush(r.getQueueName(queue), r.getQueueName(inprogressQueue), timeout).Result()
 
 	if err != nil {
@@ -55,7 +55,7 @@ func (r *redisStore) EnqueueMessage(queue string, priority float64, message stri
 	return err
 }
 
-func (r *redisStore) ScheduleMessage(priority float64, message string) error {
+func (r *redisStore) EnqueueScheduledMessage(priority float64, message string) error {
 	_, err := r.client.ZAdd(r.namespace+ScheduledJobsKey, redis.Z{
 		Score:  priority,
 		Member: message,
@@ -64,7 +64,7 @@ func (r *redisStore) ScheduleMessage(priority float64, message string) error {
 	return err
 }
 
-func (r *redisStore) FetchScheduledMessage(priority float64) (string, error) {
+func (r *redisStore) DequeueScheduledMessage(priority float64) (string, error) {
 	key := r.namespace + ScheduledJobsKey
 
 	messages, err := r.client.ZRangeByScore(key, redis.ZRangeBy{
@@ -94,7 +94,7 @@ func (r *redisStore) FetchScheduledMessage(priority float64) (string, error) {
 	return messages[0], nil
 }
 
-func (r *redisStore) RetryMessage(priority float64, message string) error {
+func (r *redisStore) EnqueueRetriedMessage(priority float64, message string) error {
 	_, err := r.client.ZAdd(r.namespace+RetryKey, redis.Z{
 		Score:  priority,
 		Member: message,
@@ -103,7 +103,7 @@ func (r *redisStore) RetryMessage(priority float64, message string) error {
 	return err
 }
 
-func (r *redisStore) FetchRetriedMessage(priority float64) (string, error) {
+func (r *redisStore) DequeueRetriedMessage(priority float64) (string, error) {
 	key := r.namespace + RetryKey
 
 	messages, err := r.client.ZRangeByScore(key, redis.ZRangeBy{
@@ -139,7 +139,7 @@ func (r *redisStore) EnqueueMessageNow(queue string, message string) error {
 	return err
 }
 
-func (r *redisStore) GetStats(queues []string) (*Stats, error) {
+func (r *redisStore) GetAllStats(queues []string) (*Stats, error) {
 	pipe := r.client.Pipeline()
 
 	pGet := pipe.Get(r.namespace + "stat:processed")
@@ -183,7 +183,7 @@ func (r *redisStore) CreateQueue(queue string) error {
 	return err
 }
 
-func (r *redisStore) GetMessages(queue string) ([]string, error) {
+func (r *redisStore) ListMessages(queue string) ([]string, error) {
 	messages, err := r.client.LRange(r.getQueueName(queue), 0, -1).Result()
 	if err != nil {
 		return nil, err

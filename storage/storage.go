@@ -24,20 +24,23 @@ type Stats struct {
 }
 
 type Store interface {
+
+	// General queue operations
+	CreateQueue(queue string) error
+	ListMessages(queue string) ([]string, error)
 	AcknowledgeMessage(queue string, message string) error
 	EnqueueMessage(queue string, priority float64, message string) error
 	EnqueueMessageNow(queue string, message string) error
-	FetchMessage(queue string, inprogressQueue string, timeout time.Duration) (string, error)
+	DequeueMessage(queue string, inprogressQueue string, timeout time.Duration) (string, error)
 
-	ScheduleMessage(priority float64, message string) error
-	FetchScheduledMessage(priority float64) (string, error)
+	// Special purpose queue operations
+	EnqueueScheduledMessage(priority float64, message string) error
+	DequeueScheduledMessage(priority float64) (string, error)
 
-	RetryMessage(priority float64, message string) error
-	FetchRetriedMessage(priority float64) (string, error)
+	EnqueueRetriedMessage(priority float64, message string) error
+	DequeueRetriedMessage(priority float64) (string, error)
 
-	CreateQueue(queue string) error
-	GetMessages(queue string) ([]string, error)
-
+	// Stats
 	IncrementStats(metric string) error
-	GetStats(queues []string) (*Stats, error)
+	GetAllStats(queues []string) (*Stats, error)
 }
