@@ -82,17 +82,16 @@ func (f *simpleFetcher) Fetch() {
 
 func (f *simpleFetcher) tryFetchMessage() {
 	message, err := f.client.BRPopLPush(f.queue, f.inprogressQueue(), 1*time.Second).Result()
-
-	if err != nil {
-		// If redis returns null, the queue is empty.
-		// Just ignore empty queue errors; print all other errors.
-		if err != redis.Nil {
-			Logger.Println("ERR: ", f.queue, err)
-		}
-
-		time.Sleep(1 * time.Second)
-	} else {
+	switch err {
+	case nil:
 		f.sendMessage(message)
+	case redis.Nil:
+		// If redis returns null, the queue is empty.
+		// Just ignore empty queue errors.
+		time.Sleep(1*time.Second)
+	default:
+		// Print all other errors.
+		Logger.Println("ERR: ", f.queue, err)
 	}
 }
 
