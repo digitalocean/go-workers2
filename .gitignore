@@ -1,1 +1,10 @@
 vendor/
+
+# GoLand/IntelliJ
+.idea
+
+# VSCode workspace settings
+.vscode
+
+# macOS
+*.DS_Store
