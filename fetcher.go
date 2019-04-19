@@ -108,7 +108,12 @@ func (f *simpleFetcher) sendMessage(message string) {
 }
 
 func (f *simpleFetcher) Acknowledge(message *Msg) {
-	f.client.LRem(f.inprogressQueue(), -1, message.OriginalJson()).Result()
+	count := int64(-1)
+	val, err := message.Get("unique").Bool()
+	if err == nil && val {
+		count = 0
+	}
+	f.client.LRem(f.inprogressQueue(), count, message.OriginalJson()).Result()
 }
 
 func (f *simpleFetcher) Messages() chan *Msg {

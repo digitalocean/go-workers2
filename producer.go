@@ -2,6 +2,8 @@ package workers
 
 import (
 	"crypto/rand"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,6 +33,7 @@ type EnqueueOptions struct {
 	RetryCount int     `json:"retry_count,omitempty"`
 	Retry      bool    `json:"retry,omitempty"`
 	At         float64 `json:"at,omitempty"`
+	Unique     bool    `json:"unique,omitempty"`
 }
 
 func NewProducer(options Options) (*Producer, error) {
@@ -69,7 +72,25 @@ func (p *Producer) EnqueueAt(queue, class string, at time.Time, args interface{}
 	return p.EnqueueWithOptions(queue, class, args, EnqueueOptions{At: timeToSecondsWithNanoPrecision(at)})
 }
 
+func (p *Producer) EnqueueUnique(queue, class string, at time.Time, args interface{}) (string, error) {
+	return p.EnqueueWithOptions(queue, class, args, EnqueueOptions{At: nowToSecondsWithNanoPrecision(), Unique: true})
+}
+
 func (p *Producer) EnqueueWithOptions(queue, class string, args interface{}, opts EnqueueOptions) (string, error) {
+	rc := p.opts.client
+
+	if opts.Unique {
+		bytes, err := json.Marshal(args)
+		if err != nil {
+			return "", err
+		}
+		sum := sha1.Sum(bytes)
+		if !rc.SetNX(hex.EncodeToString(sum[:]), "unique", 0).Val() {
+			// already in the list
+			return "", nil
+		}
+	}
+
 	now := nowToSecondsWithNanoPrecision()
 	data := EnqueueData{
 		Queue:          queue,
@@ -90,7 +111,6 @@ func (p *Producer) EnqueueWithOptions(queue, class string, args interface{}, opt
 		return data.Jid, err
 	}
 
-	rc := p.opts.client
 
 	_, err = rc.SAdd(p.opts.Namespace+"queues", queue).Result()
 	if err != nil {
