@@ -92,6 +92,7 @@ func (f *simpleFetcher) tryFetchMessage() {
 	default:
 		// Print all other errors.
 		Logger.Println("ERR: ", f.queue, err)
+		time.Sleep(1*time.Second)
 	}
 }
 
