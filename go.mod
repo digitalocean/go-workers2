@@ -8,6 +8,5 @@ require (
 	github.com/google/uuid v1.1.1
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/onsi/gomega v1.4.2 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/stretchr/testify v1.2.2
+	github.com/stretchr/testify v1.4.0
 )
