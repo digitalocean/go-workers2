@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/go-redis/redis"
-	"github.com/pborman/uuid"
+	"github.com/google/uuid"
 )
 
 type Manager struct {
@@ -29,7 +29,7 @@ func NewManager(options Options) (*Manager, error) {
 		return nil, err
 	}
 	return &Manager{
-		uuid: uuid.New(),
+		uuid: uuid.New().String(),
 		opts: options,
 	}, nil
 }
@@ -40,7 +40,7 @@ func NewManagerWithRedisClient(options Options, client *redis.Client) (*Manager,
 		return nil, err
 	}
 	return &Manager{
-		uuid: uuid.New(),
+		uuid: uuid.New().String(),
 		opts: options,
 	}, nil
 }
