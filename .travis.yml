@@ -7,7 +7,7 @@ go:
   - 1.11
 
 script:
-  - go test -v
+  - make test
 
 services:
   - redis-server
