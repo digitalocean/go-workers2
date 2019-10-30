@@ -7,6 +7,7 @@ import (
 	"github.com/digitalocean/go-workers2/storage"
 )
 
+//Fetcher is an interface for managing work messages
 type Fetcher interface {
 	Queue() string
 	Fetch()

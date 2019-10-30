@@ -10,6 +10,7 @@ import (
 	"github.com/go-redis/redis"
 )
 
+// Options contains the set of configuration options for a manager and/or producer
 type Options struct {
 	ProcessID    string
 	Namespace    string
@@ -83,7 +84,7 @@ func processOptionsWithRedisClient(options Options, client *redis.Client) (Optio
 	}
 
 	if client == nil {
-		return Options{}, errors.New("Redis client is nil; Redis client is not configured.")
+		return Options{}, errors.New("Redis client is nil; Redis client is not configured")
 	}
 
 	options.client = client

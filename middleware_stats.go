@@ -4,6 +4,7 @@ import (
 	"fmt"
 )
 
+// StatsMiddleware middleware to collect stats on processed messages
 func StatsMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 	return func(message *Msg) (err error) {
 		defer func() {

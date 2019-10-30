@@ -8,7 +8,10 @@ import (
 )
 
 const (
+	// DefaultRetryMax is default for max number of retries for a job
 	DefaultRetryMax = 25
+
+	// RetryTimeFormat is default for retry time format
 	RetryTimeFormat = "2006-01-02 15:04:05 MST"
 )
 
@@ -36,6 +39,7 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 	return err
 }
 
+// RetryMiddleware middleware that allows retries for jobs failures
 func RetryMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 	return func(message *Msg) (err error) {
 		defer func() {
