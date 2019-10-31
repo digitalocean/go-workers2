@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/digitalocean/go-workers2/storage"
 	"github.com/go-redis/redis"
 )
 
@@ -27,6 +28,7 @@ type Options struct {
 	ManagerDisplayName string
 
 	client *redis.Client
+	store  storage.Store
 }
 
 func processOptions(options Options) (Options, error) {
@@ -67,6 +69,10 @@ func processOptions(options Options) (Options, error) {
 	} else {
 		return Options{}, errors.New("Options requires either the Server or Sentinels option")
 	}
+
+	redisStore := storage.NewRedisStore(options.Namespace, options.client)
+	options.store = redisStore
+
 	return options, nil
 }
 
@@ -81,6 +87,10 @@ func processOptionsWithRedisClient(options Options, client *redis.Client) (Optio
 	}
 
 	options.client = client
+
+	redisStore := storage.NewRedisStore(options.Namespace, options.client)
+	options.store = redisStore
+
 	return options, nil
 }
 

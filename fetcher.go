@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-redis/redis"
+	"github.com/digitalocean/go-workers2/storage"
 )
 
 type Fetcher interface {
@@ -18,7 +18,7 @@ type Fetcher interface {
 }
 
 type simpleFetcher struct {
-	client    *redis.Client
+	store     storage.Store
 	processID string
 	queue     string
 	ready     chan bool
@@ -30,9 +30,9 @@ type simpleFetcher struct {
 
 func newSimpleFetcher(queue string, opts Options) *simpleFetcher {
 	return &simpleFetcher{
-		client:    opts.client,
+		store:     opts.store,
 		processID: opts.ProcessID,
-		queue:     opts.Namespace + "queue:" + queue,
+		queue:     queue,
 		ready:     make(chan bool),
 		messages:  make(chan *Msg),
 		stop:      make(chan bool),
@@ -81,16 +81,13 @@ func (f *simpleFetcher) Fetch() {
 }
 
 func (f *simpleFetcher) tryFetchMessage() {
-	message, err := f.client.BRPopLPush(f.queue, f.inprogressQueue(), 1*time.Second).Result()
-
+	message, err := f.store.DequeueMessage(f.queue, f.inprogressQueue(), 1*time.Second)
 	if err != nil {
 		// If redis returns null, the queue is empty.
 		// Just ignore empty queue errors; print all other errors.
-		if err != redis.Nil {
+		if err != storage.NoMessage {
 			Logger.Println("ERR: ", f.queue, err)
 		}
-
-		time.Sleep(1 * time.Second)
 	} else {
 		f.sendMessage(message)
 	}
@@ -108,7 +105,7 @@ func (f *simpleFetcher) sendMessage(message string) {
 }
 
 func (f *simpleFetcher) Acknowledge(message *Msg) {
-	f.client.LRem(f.inprogressQueue(), -1, message.OriginalJson()).Result()
+	f.store.AcknowledgeMessage(f.inprogressQueue(), message.OriginalJson())
 }
 
 func (f *simpleFetcher) Messages() chan *Msg {
@@ -134,7 +131,7 @@ func (f *simpleFetcher) Closed() bool {
 }
 
 func (f *simpleFetcher) inprogressMessages() []string {
-	messages, err := f.client.LRange(f.inprogressQueue(), 0, -1).Result()
+	messages, err := f.store.ListMessages(f.inprogressQueue())
 	if err != nil {
 		Logger.Println("ERR: ", err)
 	}

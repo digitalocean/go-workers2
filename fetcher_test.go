@@ -16,7 +16,7 @@ func TestFetchConfig(t *testing.T) {
 	opts, err := setupTestOptions()
 	assert.NoError(t, err)
 	fetch := buildFetch("fetchQueue1", opts)
-	assert.Equal(t, "queue:fetchQueue1", fetch.Queue())
+	assert.Equal(t, "fetchQueue1", fetch.Queue())
 	fetch.Close()
 }
 

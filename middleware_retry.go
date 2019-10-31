@@ -5,8 +5,6 @@ import (
 	"math"
 	"math/rand"
 	"time"
-
-	"github.com/go-redis/redis"
 )
 
 const (
@@ -26,11 +24,7 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 			) * time.Second,
 		)
 
-		rc := mgr.opts.client
-		_, err = rc.ZAdd(mgr.RetryQueue(), redis.Z{
-			Score:  nowToSecondsWithNanoPrecision() + waitDuration,
-			Member: message.ToJson(),
-		}).Result()
+		err = mgr.opts.store.EnqueueRetriedMessage(nowToSecondsWithNanoPrecision()+waitDuration, message.ToJson())
 
 		// If we can't add the job to the retry queue,
 		// then we shouldn't acknowledge the job, otherwise

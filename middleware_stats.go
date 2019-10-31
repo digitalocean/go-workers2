@@ -2,7 +2,6 @@ package workers
 
 import (
 	"fmt"
-	"time"
 )
 
 func StatsMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
@@ -33,15 +32,9 @@ func StatsMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 }
 
 func incrementStats(mgr *Manager, metric string) {
-	rc := mgr.opts.client
+	err := mgr.opts.store.IncrementStats(metric)
 
-	today := time.Now().UTC().Format("2006-01-02")
-
-	pipe := rc.Pipeline()
-	pipe.Incr(mgr.opts.Namespace + "stat:" + metric)
-	pipe.Incr(mgr.opts.Namespace + "stat:" + metric + ":" + today)
-
-	if _, err := pipe.Exec(); err != nil {
+	if err != nil {
 		Logger.Println("couldn't save stats:", err)
 	}
 }
