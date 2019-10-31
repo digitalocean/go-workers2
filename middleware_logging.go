@@ -8,8 +8,10 @@ import (
 	"time"
 )
 
-var Logger WorkersLogger = log.New(os.Stdout, "workers: ", log.Ldate|log.Lmicroseconds)
+// Logger is a stdout logger for workers
+var Logger = log.New(os.Stdout, "workers: ", log.Ldate|log.Lmicroseconds)
 
+// LogMiddleware is the default logging middleware
 func LogMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 	return func(message *Msg) (err error) {
 		prefix := fmt.Sprint(queue, " JID-", message.Jid())

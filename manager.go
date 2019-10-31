@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// Manager coordinates work, workers, and signaling needed for job processing
 type Manager struct {
 	uuid     string
 	opts     Options
@@ -21,6 +22,7 @@ type Manager struct {
 	duringDrainHooks []func()
 }
 
+// NewManager creates a new manager with provide options
 func NewManager(options Options) (*Manager, error) {
 	options, err := processOptions(options)
 	if err != nil {
@@ -33,6 +35,7 @@ func NewManager(options Options) (*Manager, error) {
 	}, nil
 }
 
+// NewManagerWithRedisClient creates a new manager with provide options and pre-configured Redis client
 func NewManagerWithRedisClient(options Options, client *redis.Client) (*Manager, error) {
 	options, err := processOptionsWithRedisClient(options, client)
 	if err != nil {
@@ -45,10 +48,12 @@ func NewManagerWithRedisClient(options Options, client *redis.Client) (*Manager,
 	}, nil
 }
 
+// GetRedisClient returns the Redis client used by the manager
 func (m *Manager) GetRedisClient() *redis.Client {
 	return m.opts.client
 }
 
+// AddWorker adds a new job processing worker
 func (m *Manager) AddWorker(queue string, concurrency int, job JobFunc, mids ...MiddlewareFunc) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -62,12 +67,14 @@ func (m *Manager) AddWorker(queue string, concurrency int, job JobFunc, mids ...
 	m.workers = append(m.workers, newWorker(queue, concurrency, job))
 }
 
+// AddBeforeStartHooks adds functions to be executed before the manager starts
 func (m *Manager) AddBeforeStartHooks(hooks ...func()) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.beforeStartHooks = append(m.beforeStartHooks, hooks...)
 }
 
+// AddDuringDrainHooks adds function to be execute during a drain operation
 func (m *Manager) AddDuringDrainHooks(hooks ...func()) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -150,10 +157,12 @@ func (m *Manager) inProgressMessages() map[string][]*Msg {
 	return res
 }
 
+// Producer creates a new work producer with configuration identical to the manager
 func (m *Manager) Producer() *Producer {
 	return &Producer{opts: m.opts}
 }
 
+// GetStats returns the set of stats for the manager
 func (m *Manager) GetStats() (Stats, error) {
 	stats := Stats{
 		Jobs:     map[string][]JobStatus{},
