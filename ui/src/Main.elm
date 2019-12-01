@@ -19,6 +19,13 @@ type alias Stats =
   }
 
 
+-- type alias Retries =
+--   { retryCount : Int
+--   , queue : String
+--   , error : String
+--   }
+
+
 type alias Model =
   { stats : List Stats
   , errorMessage : Maybe String
@@ -62,35 +69,73 @@ viewError errorMessage =
 
 viewTableHeader : Html Msg
 viewTableHeader =
-  tr []
-    [ th []
-      [ text "Processed" ]
-    , th []
-      [ text "Failed" ]
-    , th []
-      [ text "Retries" ]
+  div [ style "border" "1px solid #dddddd" ]
+    [ tr []
+        [ th [ style "padding" "8px" ]
+          [ text "Processed" ]
+        , th [ style "padding" "8px" ]
+          [ text "Failed" ]
+        , th [ style "padding" "8px" ]
+          [ text "Retries" ]
+        ]
     ]
 
 
 viewStats : List Stats -> Html Msg
 viewStats stats =
     tr []
-      [ h4 [] [ text "Worker Stats" ]
+      [ h4 [ style "padding" "8px"
+           , style "font-family" "arial, sans-serif"
+           ]
+           [ text "Go Workers 2"
+           ]
       , div []
-        ([ viewTableHeader ] ++ List.map viewStatsData stats)
+        (List.map viewStatsData stats ++ [ viewTableHeader ])
       ]
 
 
 viewStatsData : Stats -> Html Msg
 viewStatsData stats =
-  tr []
-    [ td []
-      [ text (String.fromInt stats.processed) ]
-    , td []
-      [ text (String.fromInt stats.failed) ]
-    , td []
-      [ text (String.fromInt stats.retries) ]
-    ]
+  div [ style "border" "1px solid #dddddd"
+      , style "color" "red" ]
+      [ tr []
+          [ td [ style "padding" "8px" ]
+            [ text (String.fromInt stats.processed) ]
+          , td [ style "padding" "8px" ]
+            [ text (String.fromInt stats.failed) ]
+          , td [ style "padding" "8px" ]
+            [ text (String.fromInt stats.retries) ]
+          ]
+      ]
+
+
+-- viewRetries : List Retries -> Html Msg
+-- viewRetries retries =
+--   tr []
+--     [ h4 [ style "padding" "8px"
+--          , style "font-family" "arial, sans-serif"
+--          , style "border" "1px solid #dddddd"
+--          ]
+--          [ text "Retries"
+--          ]
+--     , div []
+--       (List.map viewRetryData retries)
+--     ]
+
+
+-- viewRetryData : Retries -> Html Msg
+-- viewRetryData retries =
+--   div []
+--     [ tr []
+--         [ td[]
+--           [ text ("test retry 1") ]
+--         , td[]
+--           [ text ("test retry 2") ]
+--         , td[]
+--           [ text ("test retry 3") ]
+--         ]
+--     ]
+
 
 type Msg
   = SendHttpRequest
