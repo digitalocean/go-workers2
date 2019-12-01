@@ -90,7 +90,7 @@ viewStats stats =
            [ text "Go Workers 2"
            ]
       , div []
-        (List.map viewStatsData stats ++ [ viewTableHeader ])
+        ([ viewTableHeader ] ++ List.map viewStatsData stats)
       ]
 
 
