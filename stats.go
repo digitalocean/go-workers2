@@ -48,17 +48,27 @@ func (ss *statsServer) Stats(w http.ResponseWriter, req *http.Request) {
 }
 
 type Stats struct {
-	Name      string                 `json:"manager_name"`
-	Processed int64                  `json:"processed"`
-	Failed    int64                  `json:"failed"`
-	Jobs      map[string][]JobStatus `json:"jobs"`
-	Enqueued  map[string]int64       `json:"enqueued"`
-	Retries   int64                  `json:"retries"`
+	Name       string                   `json:"manager_name"`
+	Processed  int64                    `json:"processed"`
+	Failed     int64                    `json:"failed"`
+	Jobs       map[string][]JobStatus   `json:"jobs"`
+	Enqueued   map[string]int64         `json:"enqueued"`
+	Retries    map[string][]RetryStatus `json:"retries"`
+	RetryCount int64                    `json:"retry_count"`
 }
 
 type JobStatus struct {
 	Message   *Msg  `json:"message"`
 	StartedAt int64 `json:"started_at"`
+}
+
+type RetryStatus struct {
+	ErrorMessage   string `json:"error_message"`
+	FailedAt       int64  `json:"failed_at"`
+	RetriedAt      int64  `json:"failed_at"`
+	ErrorBacktrace string `json:"error_backtrace"`
+	ErrorClass     string `json:"error_class"`
+	RetryCount     int64  `json:"retry_count"`
 }
 
 func StartStatsServer(port int) {

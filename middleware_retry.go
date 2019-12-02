@@ -77,10 +77,9 @@ func retry(message *Msg) bool {
 		max = param
 		retry = true
 	}
+	retryCount, _ := message.Get("retry_count").Int()
 
-	count, _ := message.Get("retry_count").Int()
-
-	return retry && count < max
+	return retry && retryCount < max
 }
 
 func incrementRetry(message *Msg) (retryCount int) {

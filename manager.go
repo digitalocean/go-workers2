@@ -150,6 +150,19 @@ func (m *Manager) inProgressMessages() map[string][]*Msg {
 	return res
 }
 
+func (m *Manager) inRetryMessages() map[string][]*Msg {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	retries, _ := m.opts.client.ZRange(m.RetryQueue(), 0, -1).Result()
+	res := map[string][]*Msg{}
+	for _, retry := range retries {
+		msg, _ := NewMsg(retry)
+		queue, _ := msg.Get("queue").String()
+		res[queue] = append(res[queue], msg)
+	}
+	return res
+}
+
 func (m *Manager) RetryQueue() string {
 	return m.opts.Namespace + retryKey
 }
@@ -163,9 +176,11 @@ func (m *Manager) GetStats() (Stats, error) {
 		Jobs:     map[string][]JobStatus{},
 		Enqueued: map[string]int64{},
 		Name:     m.opts.ManagerDisplayName,
+		Retries:  map[string][]RetryStatus{},
 	}
 	pipe := m.opts.client.Pipeline()
 	inProgress := m.inProgressMessages()
+	inRetry := m.inRetryMessages()
 	ns := m.opts.Namespace
 
 	pGet := pipe.Get(ns + "stat:processed")
@@ -185,6 +200,22 @@ func (m *Manager) GetStats() (Stats, error) {
 		qLen[ns+queue] = pipe.LLen(fmt.Sprintf("%squeue:%s", ns, queue))
 	}
 
+	for queue, msgs := range inRetry {
+		var retriedJobs []RetryStatus
+		for _, m := range msgs {
+			retriedJobs = append(retriedJobs, RetryStatus{
+				ErrorMessage:   m.errorMessage,
+				FailedAt:       m.failedAt,
+				RetriedAt:      m.retriedAt,
+				ErrorBacktrace: m.errorBacktrace,
+				ErrorClass:     m.errorClass,
+				RetryCount:     m.retryCount,
+			})
+		}
+		stats.Retries[ns+queue] = retriedJobs
+		qLen[ns+queue] = pipe.LLen(fmt.Sprintf("%queue:%s", ns, queue))
+	}
+
 	_, err := pipe.Exec()
 
 	if err != nil && err != redis.Nil {
@@ -192,7 +223,7 @@ func (m *Manager) GetStats() (Stats, error) {
 	}
 	stats.Processed, _ = strconv.ParseInt(pGet.Val(), 10, 64)
 	stats.Failed, _ = strconv.ParseInt(fGet.Val(), 10, 64)
-	stats.Retries = rGet.Val()
+	stats.RetryCount = rGet.Val()
 
 	for q, l := range qLen {
 		stats.Enqueued[q] = l.Val()

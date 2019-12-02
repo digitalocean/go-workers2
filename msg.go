@@ -1,8 +1,11 @@
 package workers
 
 import (
-	"github.com/bitly/go-simplejson"
 	"reflect"
+
+	"github.com/bitly/go-simplejson"
+
+	"github.com/bitly/go-simplejson"
 )
 
 type data struct {
@@ -11,9 +14,15 @@ type data struct {
 
 type Msg struct {
 	*data
-	original  string
-	ack       bool
-	startedAt int64
+	original       string
+	ack            bool
+	startedAt      int64
+	failedAt       int64
+	retriedAt      int64
+	errorBacktrace string
+	errorClass     string
+	errorMessage   string
+	retryCount     int64
 }
 
 type Args struct {
