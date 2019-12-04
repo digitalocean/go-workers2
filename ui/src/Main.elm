@@ -15,7 +15,7 @@ import Bootstrap.Grid as Grid
 type alias Stats =
   { processed : Int
   , failed : Int
-  , retries : Int
+  , retryCount : Int
   }
 
 
@@ -76,7 +76,7 @@ viewTableHeader =
         , th [ style "padding" "8px" ]
           [ text "Failed" ]
         , th [ style "padding" "8px" ]
-          [ text "Retries" ]
+          [ text "RetryCount" ]
         ]
     ]
 
@@ -104,7 +104,7 @@ viewStatsData stats =
           , td [ style "padding" "8px" ]
             [ text (String.fromInt stats.failed) ]
           , td [ style "padding" "8px" ]
-            [ text (String.fromInt stats.retries) ]
+            [ text (String.fromInt stats.retryCount) ]
           ]
       ]
 
@@ -151,7 +151,7 @@ statsDecoder =
   map3 Stats
     (field "processed" int)
     (field "failed" int)
-    (field "retries" int)
+    (field "retry_count" int)
 
 
 
