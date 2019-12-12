@@ -17,10 +17,24 @@ func (e StorageError) Error() string { return string(e) }
 const NoMessage = StorageError("no message")
 
 type Stats struct {
-	Processed int64
-	Failed    int64
-	Retries   int64
-	Enqueued  map[string]int64
+	Processed  int64
+	Failed     int64
+	RetryCount int64
+	Enqueued   map[string]int64
+}
+
+type Retries struct {
+	TotalRetryCount int64
+	RetryJobs       []RetryJobStats
+}
+
+type RetryJobStats struct {
+	Class        string
+	ErrorMessage string
+	FailedAt     string
+	JobID        string
+	Queue        string
+	RetryCount   int64
 }
 
 type Store interface {
@@ -43,4 +57,7 @@ type Store interface {
 	// Stats
 	IncrementStats(metric string) error
 	GetAllStats(queues []string) (*Stats, error)
+
+	// Retries
+	GetAllRetries() (*Retries, error)
 }
