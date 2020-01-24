@@ -4,6 +4,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/digitalocean/go-workers2/storage"
 	"github.com/go-redis/redis"
 	"github.com/google/uuid"
 )
@@ -94,7 +95,7 @@ func (m *Manager) Run() {
 		h()
 	}
 
-	globalStatsServer.registerManager(m)
+	globalApiServer.registerManager(m)
 
 	var wg sync.WaitGroup
 
@@ -126,7 +127,7 @@ func (m *Manager) Run() {
 	wg.Wait()
 	// Regain the lock
 	m.lock.Lock()
-	globalStatsServer.deregisterManager(m)
+	globalApiServer.deregisterManager(m)
 	m.running = false
 }
 
@@ -194,11 +195,77 @@ func (m *Manager) GetStats() (Stats, error) {
 
 	stats.Processed = storeStats.Processed
 	stats.Failed = storeStats.Failed
-	stats.Retries = storeStats.Retries
+	stats.RetryCount = storeStats.RetryCount
 
 	for q, l := range stats.Enqueued {
 		stats.Enqueued[q] = l
 	}
 
 	return stats, nil
+}
+
+// GetRetries returns the set of retry jobs for the manager
+func (m *Manager) GetRetries(page uint64, page_size int64, match string) (Retries, error) {
+	retries := Retries{}
+
+	storeRetries, err := m.opts.store.GetAllRetries()
+	if err != nil {
+		return retries, err
+	}
+	retryStats := m.opts.client.ZScan(m.opts.Namespace+storage.RetryKey, page, match, page_size).Iterator()
+
+	var messages []*Msg
+
+	for retryStats.Next() {
+		msg, err := NewMsg(retryStats.Val())
+		if err != nil {
+			break
+		}
+		retryStats.Next()
+		messages = append(messages, msg)
+	}
+
+	var retryJobStats []RetryJobStats
+
+	for i := 0; i < len(messages); i++ {
+		// Get the values for each field
+		class, err := messages[i].Get("class").String()
+		if err != nil {
+			return retries, err
+		}
+		error_msg, err := messages[i].Get("error_message").String()
+		if err != nil {
+			return retries, err
+		}
+		failed_at, err := messages[i].Get("failed_at").String()
+		if err != nil {
+			return retries, err
+		}
+		job_id, err := messages[i].Get("jid").String()
+		if err != nil {
+			return retries, err
+		}
+		queue, err := messages[i].Get("queue").String()
+		if err != nil {
+			return retries, err
+		}
+		retry_count, err := messages[i].Get("retry_count").Int64()
+		if err != nil {
+			return retries, err
+		}
+
+		retryJobStats = append(retryJobStats, RetryJobStats{
+			Class:        class,
+			ErrorMessage: error_msg,
+			FailedAt:     failed_at,
+			JobID:        job_id,
+			Queue:        queue,
+			RetryCount:   retry_count,
+		})
+	}
+
+	retries.TotalRetryCount = storeRetries.TotalRetryCount
+	retries.RetryJobs = retryJobStats
+
+	return retries, nil
 }

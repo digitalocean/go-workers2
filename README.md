@@ -120,7 +120,7 @@ When running the above code example, it will produce the following output at `lo
       "myqueue2": 0,
       "myqueue3": 0
     },
-    "retries": 4
+    "retry_count": 4
   }
 ]
 ```

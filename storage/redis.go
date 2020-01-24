@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bitly/go-simplejson"
 	"github.com/go-redis/redis"
 )
 
@@ -139,6 +140,32 @@ func (r *redisStore) EnqueueMessageNow(queue string, message string) error {
 	return err
 }
 
+func (r *redisStore) GetAllRetries() (*Retries, error) {
+	pipe := r.client.Pipeline()
+	retries := &Retries{}
+	retryCountGet := pipe.ZCard(r.namespace + RetryKey)
+	retryJobsGet, err := r.client.ZRange(r.namespace+RetryKey, 0, 1).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	retryJobStats, err := r.getRetryJson(retryJobsGet)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = pipe.Exec()
+
+	if err != nil && err != redis.Nil {
+		return nil, err
+	}
+
+	retries.RetryJobs = retryJobStats
+	retries.TotalRetryCount = retryCountGet.Val()
+
+	return retries, nil
+}
+
 func (r *redisStore) GetAllStats(queues []string) (*Stats, error) {
 	pipe := r.client.Pipeline()
 
@@ -163,7 +190,7 @@ func (r *redisStore) GetAllStats(queues []string) (*Stats, error) {
 
 	stats.Processed, _ = strconv.ParseInt(pGet.Val(), 10, 64)
 	stats.Failed, _ = strconv.ParseInt(fGet.Val(), 10, 64)
-	stats.Retries = rGet.Val()
+	stats.RetryCount = rGet.Val()
 
 	for q, l := range qLen {
 		stats.Enqueued[q] = l.Val()
@@ -210,4 +237,88 @@ func (r *redisStore) IncrementStats(metric string) error {
 
 func (r *redisStore) getQueueName(queue string) string {
 	return r.namespace + "queue:" + queue
+}
+
+func (r *redisStore) getRetryJson(retryStats []string) ([]RetryJobStats, error) {
+	// parse json from string of retry data
+	allRetryStats, err := newMsg(retryStats[0])
+	if err != nil {
+		return nil, err
+	}
+
+	class, err := allRetryStats.Get("class").String()
+	if err != nil {
+		return nil, err
+	}
+
+	error_msg, err := allRetryStats.Get("error_message").String()
+	if err != nil {
+		return nil, err
+	}
+
+	failed_at, err := allRetryStats.Get("failed_at").String()
+	if err != nil {
+		return nil, err
+	}
+
+	job_id, err := allRetryStats.Get("jid").String()
+	if err != nil {
+		return nil, err
+	}
+
+	queue, err := allRetryStats.Get("queue").String()
+	if err != nil {
+		return nil, err
+	}
+
+	retry_count, err := allRetryStats.Get("retry_count").Int64()
+	if err != nil {
+		return nil, err
+	}
+
+	var retryJobStats []RetryJobStats
+	for i := 0; i < len(retryStats[0]); i++ {
+		retryJobStats = append(retryJobStats, RetryJobStats{
+			Class:        class,
+			ErrorMessage: error_msg,
+			FailedAt:     failed_at,
+			JobID:        job_id,
+			Queue:        queue,
+			RetryCount:   retry_count,
+		})
+	}
+
+	return retryJobStats, nil
+}
+
+type data struct {
+	*simplejson.Json
+}
+
+type Msg struct {
+	*data
+	original  string
+	ack       bool
+	startedAt int64
+}
+
+func newMsg(content string) (*Msg, error) {
+	d, err := newData(content)
+	if err != nil {
+		return nil, err
+	}
+	return &Msg{
+		data:      d,
+		original:  content,
+		ack:       true,
+		startedAt: 0,
+	}, nil
+}
+
+func newData(content string) (*data, error) {
+	json, err := simplejson.NewJson([]byte(content))
+	if err != nil {
+		return nil, err
+	}
+	return &data{json}, nil
 }
