@@ -31,7 +31,7 @@ func (s *apiServer) Stats(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	var allStats []Stats
+	allStats := []Stats{}
 	for _, m := range s.managers {
 		s, err := m.GetStats()
 		if err != nil {

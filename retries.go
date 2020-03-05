@@ -13,7 +13,7 @@ func (s *apiServer) Retries(w http.ResponseWriter, req *http.Request) {
 		Logger.Println("couldn't retrieve retries filtering query:", err)
 	}
 
-	var allRetries []Retries
+	allRetries := []Retries{}
 	for _, m := range s.managers {
 		r, err := m.GetRetries(page, pageSizeVal, query)
 		if err != nil {
