@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-redis/redis"
+	"github.com/digitalocean/go-workers2/storage"
 )
 
+//Fetcher is an interface for managing work messages
 type Fetcher interface {
 	Queue() string
 	Fetch()
@@ -18,7 +19,7 @@ type Fetcher interface {
 }
 
 type simpleFetcher struct {
-	client    *redis.Client
+	store     storage.Store
 	processID string
 	queue     string
 	ready     chan bool
@@ -30,9 +31,9 @@ type simpleFetcher struct {
 
 func newSimpleFetcher(queue string, opts Options) *simpleFetcher {
 	return &simpleFetcher{
-		client:    opts.client,
+		store:     opts.store,
 		processID: opts.ProcessID,
-		queue:     opts.Namespace + "queue:" + queue,
+		queue:     queue,
 		ready:     make(chan bool),
 		messages:  make(chan *Msg),
 		stop:      make(chan bool),
@@ -81,19 +82,16 @@ func (f *simpleFetcher) Fetch() {
 }
 
 func (f *simpleFetcher) tryFetchMessage() {
-	message, err := f.client.BRPopLPush(f.queue, f.inprogressQueue(), 1*time.Second).Result()
-	switch err {
-	case nil:
-		f.sendMessage(message)
-	case redis.Nil:
+	message, err := f.store.DequeueMessage(f.queue, f.inprogressQueue(), 1*time.Second)
+	if err != nil {
 		// If redis returns null, the queue is empty.
-		// Just ignore empty queue errors.
-		time.Sleep(1*time.Second)
-	default:
-		// Print all other errors.
-		Logger.Println("ERR: ", f.queue, err)
-		time.Sleep(1*time.Second)
-	}
+		// Just ignore empty queue errors; print all other errors.
+		if err != storage.NoMessage {
+			Logger.Println("ERR: ", f.queue, err)
+		}
+	} else {
+		f.sendMessage(message)
+  }
 }
 
 func (f *simpleFetcher) sendMessage(message string) {
@@ -108,12 +106,7 @@ func (f *simpleFetcher) sendMessage(message string) {
 }
 
 func (f *simpleFetcher) Acknowledge(message *Msg) {
-	count := int64(-1)
-	val, err := message.Get("unique").Bool()
-	if err == nil && val {
-		count = 0
-	}
-	f.client.LRem(f.inprogressQueue(), count, message.OriginalJson()).Result()
+	f.store.AcknowledgeMessage(f.inprogressQueue(), message.OriginalJson())
 }
 
 func (f *simpleFetcher) Messages() chan *Msg {
@@ -139,7 +132,7 @@ func (f *simpleFetcher) Closed() bool {
 }
 
 func (f *simpleFetcher) inprogressMessages() []string {
-	messages, err := f.client.LRange(f.inprogressQueue(), 0, -1).Result()
+	messages, err := f.store.ListMessages(f.inprogressQueue())
 	if err != nil {
 		Logger.Println("ERR: ", err)
 	}

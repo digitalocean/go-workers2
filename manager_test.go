@@ -183,14 +183,6 @@ func TestManager_AddWorker(t *testing.T) {
 	defaultMiddlewares = baseMids
 }
 
-func TestManager_RetryQueue(t *testing.T) {
-	namespace := "prod"
-	opts := testOptionsWithNamespace(namespace)
-	mgr, err := newTestManager(opts)
-	assert.NoError(t, err)
-	assert.Equal(t, "prod:goretry", mgr.RetryQueue())
-}
-
 func TestManager_Run(t *testing.T) {
 	namespace := "mgrruntest"
 	opts := testOptionsWithNamespace(namespace)
@@ -219,7 +211,7 @@ func TestManager_Run(t *testing.T) {
 	q1cc.ackSyncCh <- true
 
 	// Test that the manager is registered in the stats server
-	assert.Contains(t, globalStatsServer.managers, mgr.uuid)
+	assert.Contains(t, globalApiServer.managers, mgr.uuid)
 
 	// Test that it runs a scheduledWorker
 	_, err = prod.EnqueueIn("queue1", "any", 2, q1cc.syncMsg().Args().Interface())
@@ -232,7 +224,7 @@ func TestManager_Run(t *testing.T) {
 	wg.Wait()
 
 	// Test that the manager is deregistered from the stats server
-	assert.NotContains(t, globalStatsServer.managers, mgr.uuid)
+	assert.NotContains(t, globalApiServer.managers, mgr.uuid)
 
 	// Test that we can restart the manager
 	go func() {
@@ -250,7 +242,7 @@ func TestManager_Run(t *testing.T) {
 	q1cc.ackSyncCh <- true
 
 	// Test that we're back in the global stats server
-	assert.Contains(t, globalStatsServer.managers, mgr.uuid)
+	assert.Contains(t, globalApiServer.managers, mgr.uuid)
 
 	mgr.Stop()
 	wg.Wait()

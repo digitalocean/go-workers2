@@ -1,15 +1,15 @@
 package workers
 
 import (
-	"fmt"
 	"os"
-	"strconv"
 	"sync"
 
+	"github.com/digitalocean/go-workers2/storage"
 	"github.com/go-redis/redis"
-	"github.com/pborman/uuid"
+	"github.com/google/uuid"
 )
 
+// Manager coordinates work, workers, and signaling needed for job processing
 type Manager struct {
 	uuid     string
 	opts     Options
@@ -23,32 +23,38 @@ type Manager struct {
 	duringDrainHooks []func()
 }
 
+// NewManager creates a new manager with provide options
 func NewManager(options Options) (*Manager, error) {
 	options, err := processOptions(options)
 	if err != nil {
 		return nil, err
 	}
+
 	return &Manager{
-		uuid: uuid.New(),
+		uuid: uuid.New().String(),
 		opts: options,
 	}, nil
 }
 
+// NewManagerWithRedisClient creates a new manager with provide options and pre-configured Redis client
 func NewManagerWithRedisClient(options Options, client *redis.Client) (*Manager, error) {
 	options, err := processOptionsWithRedisClient(options, client)
 	if err != nil {
 		return nil, err
 	}
+
 	return &Manager{
-		uuid: uuid.New(),
+		uuid: uuid.New().String(),
 		opts: options,
 	}, nil
 }
 
+// GetRedisClient returns the Redis client used by the manager
 func (m *Manager) GetRedisClient() *redis.Client {
 	return m.opts.client
 }
 
+// AddWorker adds a new job processing worker
 func (m *Manager) AddWorker(queue string, concurrency int, job JobFunc, mids ...MiddlewareFunc) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -62,12 +68,14 @@ func (m *Manager) AddWorker(queue string, concurrency int, job JobFunc, mids ...
 	m.workers = append(m.workers, newWorker(queue, concurrency, job))
 }
 
+// AddBeforeStartHooks adds functions to be executed before the manager starts
 func (m *Manager) AddBeforeStartHooks(hooks ...func()) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.beforeStartHooks = append(m.beforeStartHooks, hooks...)
 }
 
+// AddDuringDrainHooks adds function to be execute during a drain operation
 func (m *Manager) AddDuringDrainHooks(hooks ...func()) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -87,7 +95,7 @@ func (m *Manager) Run() {
 		h()
 	}
 
-	globalStatsServer.registerManager(m)
+	globalApiServer.registerManager(m)
 
 	var wg sync.WaitGroup
 
@@ -119,7 +127,7 @@ func (m *Manager) Run() {
 	wg.Wait()
 	// Regain the lock
 	m.lock.Lock()
-	globalStatsServer.deregisterManager(m)
+	globalApiServer.deregisterManager(m)
 	m.running = false
 }
 
@@ -150,28 +158,22 @@ func (m *Manager) inProgressMessages() map[string][]*Msg {
 	return res
 }
 
-func (m *Manager) RetryQueue() string {
-	return m.opts.Namespace + retryKey
-}
-
+// Producer creates a new work producer with configuration identical to the manager
 func (m *Manager) Producer() *Producer {
 	return &Producer{opts: m.opts}
 }
 
+// GetStats returns the set of stats for the manager
 func (m *Manager) GetStats() (Stats, error) {
 	stats := Stats{
 		Jobs:     map[string][]JobStatus{},
 		Enqueued: map[string]int64{},
 		Name:     m.opts.ManagerDisplayName,
 	}
-	pipe := m.opts.client.Pipeline()
+	var q []string
+
 	inProgress := m.inProgressMessages()
 	ns := m.opts.Namespace
-
-	pGet := pipe.Get(ns + "stat:processed")
-	fGet := pipe.Get(ns + "stat:failed")
-	rGet := pipe.ZCard(m.RetryQueue())
-	qLen := map[string]*redis.IntCmd{}
 
 	for queue, msgs := range inProgress {
 		var jobs []JobStatus
@@ -182,21 +184,88 @@ func (m *Manager) GetStats() (Stats, error) {
 			})
 		}
 		stats.Jobs[ns+queue] = jobs
-		qLen[ns+queue] = pipe.LLen(fmt.Sprintf("%squeue:%s", ns, queue))
+		q = append(q, queue)
 	}
 
-	_, err := pipe.Exec()
+	storeStats, err := m.opts.store.GetAllStats(q)
 
-	if err != nil && err != redis.Nil {
+	if err != nil {
 		return stats, err
 	}
-	stats.Processed, _ = strconv.ParseInt(pGet.Val(), 10, 64)
-	stats.Failed, _ = strconv.ParseInt(fGet.Val(), 10, 64)
-	stats.Retries = rGet.Val()
 
-	for q, l := range qLen {
-		stats.Enqueued[q] = l.Val()
+	stats.Processed = storeStats.Processed
+	stats.Failed = storeStats.Failed
+	stats.RetryCount = storeStats.RetryCount
+
+	for q, l := range stats.Enqueued {
+		stats.Enqueued[q] = l
 	}
 
 	return stats, nil
+}
+
+// GetRetries returns the set of retry jobs for the manager
+func (m *Manager) GetRetries(page uint64, page_size int64, match string) (Retries, error) {
+	retries := Retries{}
+
+	storeRetries, err := m.opts.store.GetAllRetries()
+	if err != nil {
+		return retries, err
+	}
+	retryStats := m.opts.client.ZScan(m.opts.Namespace+storage.RetryKey, page, match, page_size).Iterator()
+
+	var messages []*Msg
+
+	for retryStats.Next() {
+		msg, err := NewMsg(retryStats.Val())
+		if err != nil {
+			break
+		}
+		retryStats.Next()
+		messages = append(messages, msg)
+	}
+
+	var retryJobStats []RetryJobStats
+
+	for i := 0; i < len(messages); i++ {
+		// Get the values for each field
+		class, err := messages[i].Get("class").String()
+		if err != nil {
+			return retries, err
+		}
+		error_msg, err := messages[i].Get("error_message").String()
+		if err != nil {
+			return retries, err
+		}
+		failed_at, err := messages[i].Get("failed_at").String()
+		if err != nil {
+			return retries, err
+		}
+		job_id, err := messages[i].Get("jid").String()
+		if err != nil {
+			return retries, err
+		}
+		queue, err := messages[i].Get("queue").String()
+		if err != nil {
+			return retries, err
+		}
+		retry_count, err := messages[i].Get("retry_count").Int64()
+		if err != nil {
+			return retries, err
+		}
+
+		retryJobStats = append(retryJobStats, RetryJobStats{
+			Class:        class,
+			ErrorMessage: error_msg,
+			FailedAt:     failed_at,
+			JobID:        job_id,
+			Queue:        queue,
+			RetryCount:   retry_count,
+		})
+	}
+
+	retries.TotalRetryCount = storeRetries.TotalRetryCount
+	retries.RetryJobs = retryJobStats
+
+	return retries, nil
 }

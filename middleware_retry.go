@@ -7,12 +7,13 @@ import (
 	"math"
 	"math/rand"
 	"time"
-
-	"github.com/go-redis/redis"
 )
 
 const (
+	// DefaultRetryMax is default for max number of retries for a job
 	DefaultRetryMax = 25
+
+	// RetryTimeFormat is default for retry time format
 	RetryTimeFormat = "2006-01-02 15:04:05 MST"
 )
 
@@ -28,11 +29,7 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 			) * time.Second,
 		)
 
-		rc := mgr.opts.client
-		_, err = rc.ZAdd(mgr.RetryQueue(), redis.Z{
-			Score:  nowToSecondsWithNanoPrecision() + waitDuration,
-			Member: message.ToJson(),
-		}).Result()
+		err = mgr.opts.store.EnqueueRetriedMessage(nowToSecondsWithNanoPrecision()+waitDuration, message.ToJson())
 
 		// If we can't add the job to the retry queue,
 		// then we shouldn't acknowledge the job, otherwise
@@ -44,6 +41,7 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 	return err
 }
 
+// RetryMiddleware middleware that allows retries for jobs failures
 func RetryMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 	return func(message *Msg) (err error) {
 		defer func() {
