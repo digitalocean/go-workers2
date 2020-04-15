@@ -3,6 +3,7 @@ package workers
 import (
 	"crypto/tls"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -105,16 +106,16 @@ func TestDefaultPollIntervalConfig(t *testing.T) {
 	})
 
 	assert.NoError(t, err)
-	assert.Equal(t, 15, opts.PollInterval)
+	assert.Equal(t, 15*time.Second, opts.PollInterval)
 
 	opts, err = processOptions(Options{
 		ServerAddr:   "localhost:6379",
 		ProcessID:    "1",
-		PollInterval: 1,
+		PollInterval: time.Second,
 	})
 
 	assert.NoError(t, err)
-	assert.Equal(t, 1, opts.PollInterval)
+	assert.Equal(t, time.Second, opts.PollInterval)
 }
 
 func TestSentinelConfigGood(t *testing.T) {
@@ -122,7 +123,7 @@ func TestSentinelConfigGood(t *testing.T) {
 		SentinelAddrs:   "localhost:26379,localhost:46379",
 		RedisMasterName: "123",
 		ProcessID:       "1",
-		PollInterval:    1,
+		PollInterval:    time.Second,
 	})
 
 	assert.NoError(t, err)
@@ -135,7 +136,7 @@ func TestSentinelConfigGoodTLS(t *testing.T) {
 		SentinelAddrs:   "localhost:26379,localhost:46379",
 		RedisMasterName: "123",
 		ProcessID:       "1",
-		PollInterval:    1,
+		PollInterval:    time.Second,
 		RedisTLSConfig:  &tls.Config{ServerName: "test_tls"},
 	})
 
@@ -149,7 +150,7 @@ func TestSentinelConfigNoMaster(t *testing.T) {
 	_, err := processOptions(Options{
 		SentinelAddrs: "localhost:26379,localhost:46379",
 		ProcessID:     "1",
-		PollInterval:  1,
+		PollInterval:  time.Second,
 	})
 
 	assert.Error(t, err)

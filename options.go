@@ -14,7 +14,7 @@ import (
 type Options struct {
 	ProcessID    string
 	Namespace    string
-	PollInterval int
+	PollInterval time.Duration
 	Database     int
 	Password     string
 	PoolSize     int
@@ -105,7 +105,7 @@ func validateGeneralOptions(options Options) (Options, error) {
 	}
 
 	if options.PollInterval <= 0 {
-		options.PollInterval = 15
+		options.PollInterval = 15 * time.Second
 	}
 
 	return options, nil
