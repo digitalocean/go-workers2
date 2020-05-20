@@ -4,14 +4,14 @@
 [Sidekiq](http://sidekiq.org/) compatible
 background workers in [golang](http://golang.org/).
 
-* reliable queueing for all queues using [brpoplpush](http://redis.io/commands/brpoplpush)
-* handles retries
-* support custom middleware
-* customize concurrency per queue
-* responds to Unix signals to safely wait for jobs to finish before exiting.
-* provides stats on what jobs are currently running
-* redis sentinel support
-* well tested
+- reliable queueing for all queues using [brpoplpush](http://redis.io/commands/brpoplpush)
+- handles retries
+- support custom middleware
+- customize concurrency per queue
+- responds to Unix signals to safely wait for jobs to finish before exiting.
+- provides stats on what jobs are currently running
+- redis sentinel support
+- well tested
 
 Example usage:
 
@@ -95,7 +95,7 @@ func main() {
   producer.EnqueueWithOptions("myqueue3", "Add", []int{1, 2}, workers.EnqueueOptions{Retry: true})
 
   // stats will be available at http://localhost:8080/stats
-  go workers.StartStatsServer(8080)
+  go workers.StartAPIServer(8080)
 
   // Blocks until process is told to exit via unix signal
   manager.Run()
