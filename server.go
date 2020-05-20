@@ -1,9 +1,12 @@
 package workers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 )
+
+var globalHTTPServer *http.Server
 
 func StartAPIServer(port int) {
 	mux := http.NewServeMux()
@@ -12,7 +15,15 @@ func StartAPIServer(port int) {
 	mux.HandleFunc("/retries", globalApiServer.Retries)
 
 	Logger.Println("APIs are available at", fmt.Sprintf("http://localhost:%v/", port))
-	if err := http.ListenAndServe(fmt.Sprint(":", port), mux); err != nil {
+
+	globalHTTPServer = &http.Server{Addr: fmt.Sprint(":", port), Handler: mux}
+	if err := globalHTTPServer.ListenAndServe(); err != nil {
 		Logger.Println(err)
+	}
+}
+
+func StopAPIServer() {
+	if globalHTTPServer != nil {
+		globalHTTPServer.Shutdown(context.Background())
 	}
 }
