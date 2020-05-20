@@ -3,6 +3,7 @@ package storage
 import (
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"time"
 
@@ -24,6 +25,7 @@ func NewRedisStore(namespace string, client *redis.Client) Store {
 	return &redisStore{
 		namespace: namespace,
 		client:    client,
+		logger:    log.New(os.Stdout, "workers: ", log.Ldate|log.Lmicroseconds),
 	}
 }
 
