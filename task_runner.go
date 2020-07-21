@@ -1,7 +1,6 @@
 package workers
 
 import (
-	"fmt"
 	"sync"
 	"time"
 )
@@ -45,15 +44,6 @@ func (w *taskRunner) work(messages <-chan *Msg, done chan<- *Msg, ready chan<- b
 }
 
 func (w *taskRunner) process(message *Msg) (err error) {
-	defer func() {
-		if e := recover(); e != nil {
-			var ok bool
-			if err, ok = e.(error); !ok {
-				err = fmt.Errorf("%v", e)
-			}
-		}
-	}()
-
 	return w.handler(message)
 }
 

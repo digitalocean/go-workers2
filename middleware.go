@@ -30,6 +30,7 @@ var defaultMiddlewares = NewMiddlewares(
 	LogMiddleware,
 	RetryMiddleware,
 	StatsMiddleware,
+	RecoverMiddleware,
 )
 
 func DefaultMiddlewares() Middlewares {
