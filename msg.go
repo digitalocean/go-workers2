@@ -20,6 +20,10 @@ type Args struct {
 	*data
 }
 
+func (m *Msg) Class() string {
+	return m.Get("class").MustString()
+}
+
 func (m *Msg) Jid() string {
 	return m.Get("jid").MustString()
 }

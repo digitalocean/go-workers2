@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// A function that gets executed when retry attempts have been exhausted.
+type RetriesExhaustedFunc func(queue string, message *Msg, err error)
+
 const (
 	// DefaultRetryMax is default for max number of retries for a job
 	DefaultRetryMax = 25
@@ -16,7 +19,10 @@ const (
 )
 
 func retryProcessError(queue string, mgr *Manager, message *Msg, err error) error {
-	if retry(message) {
+	if !retry(message) {
+		return err
+	}
+	if retryCount(message) < retryMax(message) {
 		message.Set("queue", queue)
 		message.Set("error_message", fmt.Sprintf("%v", err))
 		retryCount := incrementRetry(message)
@@ -34,6 +40,10 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 		// it'll disappear into the void.
 		if err != nil {
 			message.ack = false
+		}
+	} else {
+		for _, retriesExhaustedHandler := range mgr.retriesExhaustedHandlers {
+			retriesExhaustedHandler(queue, message, err)
 		}
 	}
 	return err
@@ -67,18 +77,26 @@ func RetryMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 
 func retry(message *Msg) bool {
 	retry := false
-	max := DefaultRetryMax
 
 	if param, err := message.Get("retry").Bool(); err == nil {
 		retry = param
-	} else if param, err := message.Get("retry").Int(); err == nil {
-		max = param
+	} else if _, err := message.Get("retry").Int(); err == nil {
 		retry = true
 	}
+	return retry
+}
 
+func retryCount(message *Msg) int {
 	count, _ := message.Get("retry_count").Int()
+	return count
+}
 
-	return retry && count < max
+func retryMax(message *Msg) int {
+	max := DefaultRetryMax
+	if param, err := message.Get("retry").Int(); err == nil {
+		max = param
+	}
+	return max
 }
 
 func incrementRetry(message *Msg) (retryCount int) {

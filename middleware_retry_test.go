@@ -8,8 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+const errorText = "AHHHH"
+
 var panickingFunc = func(message *Msg) error {
-	panic(errors.New("AHHHH"))
+	panic(errors.New(errorText))
 }
 
 var wares = NewMiddlewares(RetryMiddleware)
@@ -114,7 +116,7 @@ func TestHandleNewFailedMessages(t *testing.T) {
 	failedAt, _ := message.Get("failed_at").String()
 
 	assert.Equal(t, "prod:myqueue", queue)
-	assert.Equal(t, "AHHHH", errorMessage)
+	assert.Equal(t, errorText, errorMessage)
 	assert.Equal(t, "", errorClass)
 	assert.Equal(t, 0, retryCount)
 	assert.Equal(t, "", errorBacktrace)
@@ -145,7 +147,7 @@ func TestRecurringFailedMessages(t *testing.T) {
 	retriedAt, _ := message.Get("retried_at").String()
 
 	assert.Equal(t, "prod:myqueue", queue)
-	assert.Equal(t, "AHHHH", errorMessage)
+	assert.Equal(t, errorText, errorMessage)
 	assert.Equal(t, 11, retryCount)
 	assert.Equal(t, "2013-07-20 14:03:42 UTC", failedAt)
 	assert.Equal(t, time.Now().UTC().Format(layout), retriedAt)
@@ -173,7 +175,7 @@ func TestRecurringFailedMessagesWithMax(t *testing.T) {
 	retriedAt, _ := message.Get("retried_at").String()
 
 	assert.Equal(t, "prod:myqueue", queue)
-	assert.Equal(t, "AHHHH", errorMessage)
+	assert.Equal(t, errorText, errorMessage)
 	assert.Equal(t, 9, retryCount)
 	assert.Equal(t, "2013-07-20 14:03:42 UTC", failedAt)
 	assert.Equal(t, time.Now().UTC().Format(layout), retriedAt)
@@ -191,6 +193,33 @@ func TestRetryOnlyToMax(t *testing.T) {
 
 	count, _ := opts.client.ZCard(retryQueue(opts.Namespace)).Result()
 	assert.Equal(t, int64(0), count)
+}
+
+func TestRetryMaxCallsRetryExhaustionHandler(t *testing.T) {
+	opts, err := setupTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	mgr := &Manager{opts: opts}
+	var resultQueue string
+	var resultError error
+	var resultMessage *Msg
+	mgr.SetRetriesExhaustedHandlers(func(queue string, message *Msg, err error) {
+		resultQueue = queue
+		resultError = err
+		resultMessage = message
+	})
+
+	message, _ := NewMsg("{\"class\":\"clazz\",\"jid\":\"2\",\"retry\":true,\"retry_count\":25}")
+
+	wares.build("prod:myqueue", mgr, panickingFunc)(message)
+
+	count, _ := opts.client.ZCard(retryQueue(opts.Namespace)).Result()
+	assert.Equal(t, int64(0), count)
+	assert.Equal(t, "prod:myqueue", resultQueue)
+	assert.Equal(t, errorText, resultError.Error())
+	assert.Equal(t, "clazz", resultMessage.Class())
+	assert.Equal(t, "2", resultMessage.Jid())
+	assert.NotNil(t, resultMessage.Args())
 }
 
 func TestRetryOnlyToCustomMax(t *testing.T) {

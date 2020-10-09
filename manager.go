@@ -21,6 +21,8 @@ type Manager struct {
 
 	beforeStartHooks []func()
 	duringDrainHooks []func()
+
+	retriesExhaustedHandlers []RetriesExhaustedFunc
 }
 
 // NewManager creates a new manager with provide options
@@ -80,6 +82,20 @@ func (m *Manager) AddDuringDrainHooks(hooks ...func()) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.duringDrainHooks = append(m.duringDrainHooks, hooks...)
+}
+
+// SetRetriesExhaustedHandler sets function(s) that will be sequentially executed when retries are exhausted for a job.
+func (m *Manager) SetRetriesExhaustedHandlers(handlers ...RetriesExhaustedFunc) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.retriesExhaustedHandlers = handlers
+}
+
+// AddRetriesExhaustedHandler adds function(s) to be executed when retries are exhausted for a job.
+func (m *Manager) AddRetriesExhaustedHandlers(handlers ...RetriesExhaustedFunc) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.retriesExhaustedHandlers = append(m.retriesExhaustedHandlers, handlers...)
 }
 
 // Run starts all workers under this Manager and blocks until they exit.
