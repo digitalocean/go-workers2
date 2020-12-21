@@ -8,7 +8,7 @@ import (
 )
 
 func (s *apiServer) Retries(w http.ResponseWriter, req *http.Request) {
-	page, pageSizeVal, query, err := parseUrlQuery(req)
+	page, pageSizeVal, query, err := parseURLQuery(req)
 	if err != nil {
 		Logger.Println("couldn't retrieve retries filtering query:", err)
 	}
@@ -31,11 +31,13 @@ func (s *apiServer) Retries(w http.ResponseWriter, req *http.Request) {
 	enc.Encode(allRetries)
 }
 
+// Retries stores retry information
 type Retries struct {
 	TotalRetryCount int64           `json:"total_retry_count"`
 	RetryJobs       []RetryJobStats `json:"retry_jobs"`
 }
 
+// RetryJobStats stores information about a single retry job
 type RetryJobStats struct {
 	Class        string `json:"class"`
 	ErrorMessage string `json:"error_message"`
@@ -45,7 +47,7 @@ type RetryJobStats struct {
 	RetryCount   int64  `json:"retry_count"`
 }
 
-func parseUrlQuery(req *http.Request) (uint64, int64, string, error) {
+func parseURLQuery(req *http.Request) (uint64, int64, string, error) {
 	query := req.URL.Query().Get("q")
 	if len(query) > 0 {
 		query = fmt.Sprintf("*" + query + "*")

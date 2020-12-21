@@ -84,14 +84,14 @@ func (m *Manager) AddDuringDrainHooks(hooks ...func()) {
 	m.duringDrainHooks = append(m.duringDrainHooks, hooks...)
 }
 
-// SetRetriesExhaustedHandler sets function(s) that will be sequentially executed when retries are exhausted for a job.
+// SetRetriesExhaustedHandlers sets function(s) that will be sequentially executed when retries are exhausted for a job.
 func (m *Manager) SetRetriesExhaustedHandlers(handlers ...RetriesExhaustedFunc) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.retriesExhaustedHandlers = handlers
 }
 
-// AddRetriesExhaustedHandler adds function(s) to be executed when retries are exhausted for a job.
+// AddRetriesExhaustedHandlers adds function(s) to be executed when retries are exhausted for a job.
 func (m *Manager) AddRetriesExhaustedHandlers(handlers ...RetriesExhaustedFunc) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -111,7 +111,7 @@ func (m *Manager) Run() {
 		h()
 	}
 
-	globalApiServer.registerManager(m)
+	globalAPIServer.registerManager(m)
 
 	var wg sync.WaitGroup
 
@@ -143,7 +143,7 @@ func (m *Manager) Run() {
 	wg.Wait()
 	// Regain the lock
 	m.lock.Lock()
-	globalApiServer.deregisterManager(m)
+	globalAPIServer.deregisterManager(m)
 	m.running = false
 }
 
@@ -221,14 +221,14 @@ func (m *Manager) GetStats() (Stats, error) {
 }
 
 // GetRetries returns the set of retry jobs for the manager
-func (m *Manager) GetRetries(page uint64, page_size int64, match string) (Retries, error) {
+func (m *Manager) GetRetries(page uint64, pageSize int64, match string) (Retries, error) {
 	retries := Retries{}
 
 	storeRetries, err := m.opts.store.GetAllRetries()
 	if err != nil {
 		return retries, err
 	}
-	retryStats := m.opts.client.ZScan(m.opts.Namespace+storage.RetryKey, page, match, page_size).Iterator()
+	retryStats := m.opts.client.ZScan(m.opts.Namespace+storage.RetryKey, page, match, pageSize).Iterator()
 
 	var messages []*Msg
 
@@ -249,15 +249,15 @@ func (m *Manager) GetRetries(page uint64, page_size int64, match string) (Retrie
 		if err != nil {
 			return retries, err
 		}
-		error_msg, err := messages[i].Get("error_message").String()
+		errorMsg, err := messages[i].Get("error_message").String()
 		if err != nil {
 			return retries, err
 		}
-		failed_at, err := messages[i].Get("failed_at").String()
+		failedAt, err := messages[i].Get("failed_at").String()
 		if err != nil {
 			return retries, err
 		}
-		job_id, err := messages[i].Get("jid").String()
+		jobID, err := messages[i].Get("jid").String()
 		if err != nil {
 			return retries, err
 		}
@@ -265,18 +265,18 @@ func (m *Manager) GetRetries(page uint64, page_size int64, match string) (Retrie
 		if err != nil {
 			return retries, err
 		}
-		retry_count, err := messages[i].Get("retry_count").Int64()
+		retryCount, err := messages[i].Get("retry_count").Int64()
 		if err != nil {
 			return retries, err
 		}
 
 		retryJobStats = append(retryJobStats, RetryJobStats{
 			Class:        class,
-			ErrorMessage: error_msg,
-			FailedAt:     failed_at,
-			JobID:        job_id,
+			ErrorMessage: errorMsg,
+			FailedAt:     failedAt,
+			JobID:        jobID,
 			Queue:        queue,
-			RetryCount:   retry_count,
+			RetryCount:   retryCount,
 		})
 	}
 

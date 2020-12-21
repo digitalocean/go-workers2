@@ -11,10 +11,6 @@ type apiServer struct {
 	managers map[string]*Manager
 }
 
-var globalApiServer = &apiServer{
-	managers: map[string]*Manager{},
-}
-
 func (s *apiServer) registerManager(m *Manager) {
 	s.lock.Lock()
 	defer s.lock.Unlock()

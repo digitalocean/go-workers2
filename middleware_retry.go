@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// A function that gets executed when retry attempts have been exhausted.
+// RetriesExhaustedFunc gets executed when retry attempts have been exhausted.
 type RetriesExhaustedFunc func(queue string, message *Msg, err error)
 
 const (
