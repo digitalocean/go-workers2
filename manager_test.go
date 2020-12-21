@@ -74,7 +74,7 @@ func TestNewManagerWithRedisClientNoProcessID(t *testing.T) {
 func TestManager_AddBeforeStartHooks(t *testing.T) {
 	namespace := "prod"
 	opts := testOptionsWithNamespace(namespace)
-	opts.PollInterval = 1
+	opts.PollInterval = time.Second
 	mgr, err := newTestManager(opts)
 	assert.NoError(t, err)
 	var beforeStartCalled int
@@ -101,7 +101,7 @@ func TestManager_AddBeforeStartHooks(t *testing.T) {
 func TestManager_AddDuringDrainHooks(t *testing.T) {
 	namespace := "prod"
 	opts := testOptionsWithNamespace(namespace)
-	opts.PollInterval = 1
+	opts.PollInterval = time.Second
 	mgr, err := newTestManager(opts)
 	assert.NoError(t, err)
 	var duringDrainCalled int
@@ -128,7 +128,7 @@ func TestManager_AddDuringDrainHooks(t *testing.T) {
 func TestManager_AddWorker(t *testing.T) {
 	namespace := "prod"
 	opts := testOptionsWithNamespace(namespace)
-	opts.PollInterval = 1
+	opts.PollInterval = time.Second
 	mgr, err := NewManager(opts)
 	assert.NoError(t, err)
 
@@ -186,7 +186,7 @@ func TestManager_AddWorker(t *testing.T) {
 func TestManager_Run(t *testing.T) {
 	namespace := "mgrruntest"
 	opts := testOptionsWithNamespace(namespace)
-	opts.PollInterval = 1
+	opts.PollInterval = time.Second
 	mgr, err := newTestManager(opts)
 	assert.NoError(t, err)
 	prod := mgr.Producer()
@@ -252,7 +252,7 @@ func TestManager_Run(t *testing.T) {
 func TestManager_inProgressMessages(t *testing.T) {
 	namespace := "mgrruntest"
 	opts := testOptionsWithNamespace(namespace)
-	opts.PollInterval = 1
+	opts.PollInterval = time.Second
 	mgr, err := newTestManager(opts)
 	assert.NoError(t, err)
 	prod, err := NewProducer(opts)

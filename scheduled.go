@@ -20,7 +20,7 @@ func (s *scheduledWorker) run() {
 
 		s.poll()
 
-		time.Sleep(time.Duration(s.opts.PollInterval) * time.Second)
+		time.Sleep(s.opts.PollInterval)
 	}
 }
 
