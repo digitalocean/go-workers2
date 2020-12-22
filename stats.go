@@ -3,25 +3,7 @@ package workers
 import (
 	"encoding/json"
 	"net/http"
-	"sync"
 )
-
-type apiServer struct {
-	lock     sync.Mutex
-	managers map[string]*Manager
-}
-
-func (s *apiServer) registerManager(m *Manager) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	s.managers[m.uuid] = m
-}
-
-func (s *apiServer) deregisterManager(m *Manager) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	delete(s.managers, m.uuid)
-}
 
 func (s *apiServer) Stats(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

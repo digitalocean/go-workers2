@@ -11,6 +11,7 @@ import (
 )
 
 const (
+	// NanoSecondPrecision is a constant for the number of nanoseconds in a second
 	NanoSecondPrecision = 1000000000.0
 )
 
