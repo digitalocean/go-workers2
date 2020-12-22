@@ -21,6 +21,7 @@ type redisStore struct {
 // Compile-time check to ensure that Redis store does in fact implement the Store interface
 var _ Store = &redisStore{}
 
+// NewRedisStore returns a new Redis store with the given namespace and preconfigured client
 func NewRedisStore(namespace string, client *redis.Client) Store {
 	return &redisStore{
 		namespace: namespace,
@@ -44,9 +45,9 @@ func (r *redisStore) DequeueMessage(queue string, inprogressQueue string, timeou
 		time.Sleep(1 * time.Second)
 
 		return "", err
-	} else {
-		return message, nil
 	}
+
+	return message, nil
 }
 
 func (r *redisStore) EnqueueMessage(queue string, priority float64, message string) error {
@@ -253,17 +254,17 @@ func (r *redisStore) getRetryJson(retryStats []string) ([]RetryJobStats, error) 
 		return nil, err
 	}
 
-	error_msg, err := allRetryStats.Get("error_message").String()
+	errorMsg, err := allRetryStats.Get("error_message").String()
 	if err != nil {
 		return nil, err
 	}
 
-	failed_at, err := allRetryStats.Get("failed_at").String()
+	failedAt, err := allRetryStats.Get("failed_at").String()
 	if err != nil {
 		return nil, err
 	}
 
-	job_id, err := allRetryStats.Get("jid").String()
+	jobID, err := allRetryStats.Get("jid").String()
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +274,7 @@ func (r *redisStore) getRetryJson(retryStats []string) ([]RetryJobStats, error) 
 		return nil, err
 	}
 
-	retry_count, err := allRetryStats.Get("retry_count").Int64()
+	retryCount, err := allRetryStats.Get("retry_count").Int64()
 	if err != nil {
 		return nil, err
 	}
@@ -282,11 +283,11 @@ func (r *redisStore) getRetryJson(retryStats []string) ([]RetryJobStats, error) 
 	for i := 0; i < len(retryStats[0]); i++ {
 		retryJobStats = append(retryJobStats, RetryJobStats{
 			Class:        class,
-			ErrorMessage: error_msg,
-			FailedAt:     failed_at,
-			JobID:        job_id,
+			ErrorMessage: errorMsg,
+			FailedAt:     failedAt,
+			JobID:        jobID,
 			Queue:        queue,
-			RetryCount:   retry_count,
+			RetryCount:   retryCount,
 		})
 	}
 

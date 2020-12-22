@@ -14,7 +14,10 @@ type StorageError string
 
 func (e StorageError) Error() string { return string(e) }
 
-const NoMessage = StorageError("no message")
+// list of known errors
+const (
+	NoMessage = StorageError("no message")
+)
 
 type Stats struct {
 	Processed  int64
@@ -37,6 +40,7 @@ type RetryJobStats struct {
 	RetryCount   int64
 }
 
+// Store is the interface for storing and retrieving data
 type Store interface {
 
 	// General queue operations
