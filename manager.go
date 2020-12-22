@@ -4,7 +4,6 @@ import (
 	"os"
 	"sync"
 
-	"github.com/digitalocean/go-workers2/storage"
 	"github.com/go-redis/redis"
 	"github.com/google/uuid"
 )
@@ -222,52 +221,61 @@ func (m *Manager) GetStats() (Stats, error) {
 
 // GetRetries returns the set of retry jobs for the manager
 func (m *Manager) GetRetries(page uint64, pageSize int64, match string) (Retries, error) {
-	retries := Retries{}
+	// TODO: add back pagination and filtering
 
 	storeRetries, err := m.opts.store.GetAllRetries()
 	if err != nil {
-		return retries, err
-	}
-	retryStats := m.opts.client.ZScan(m.opts.Namespace+storage.RetryKey, page, match, pageSize).Iterator()
-
-	var messages []*Msg
-
-	for retryStats.Next() {
-		msg, err := NewMsg(retryStats.Val())
-		if err != nil {
-			break
-		}
-		retryStats.Next()
-		messages = append(messages, msg)
+		return Retries{}, err
 	}
 
+	retryJobStats, err := getRetryJSON(storeRetries.RetryJobs)
+	if err != nil {
+		return Retries{}, err
+	}
+
+	return Retries{
+		TotalRetryCount: storeRetries.TotalRetryCount,
+		RetryJobs:       retryJobStats,
+	}, nil
+}
+
+func getRetryJSON(retryStats []string) ([]RetryJobStats, error) {
 	var retryJobStats []RetryJobStats
+	for _, r := range retryStats {
+		// parse json from string of retry data
+		allRetryStats, err := NewMsg(r)
+		if err != nil {
+			return nil, err
+		}
 
-	for i := 0; i < len(messages); i++ {
-		// Get the values for each field
-		class, err := messages[i].Get("class").String()
+		class, err := allRetryStats.Get("class").String()
 		if err != nil {
-			return retries, err
+			return nil, err
 		}
-		errorMsg, err := messages[i].Get("error_message").String()
+
+		errorMsg, err := allRetryStats.Get("error_message").String()
 		if err != nil {
-			return retries, err
+			return nil, err
 		}
-		failedAt, err := messages[i].Get("failed_at").String()
+
+		failedAt, err := allRetryStats.Get("failed_at").String()
 		if err != nil {
-			return retries, err
+			return nil, err
 		}
-		jobID, err := messages[i].Get("jid").String()
+
+		jobID, err := allRetryStats.Get("jid").String()
 		if err != nil {
-			return retries, err
+			return nil, err
 		}
-		queue, err := messages[i].Get("queue").String()
+
+		queue, err := allRetryStats.Get("queue").String()
 		if err != nil {
-			return retries, err
+			return nil, err
 		}
-		retryCount, err := messages[i].Get("retry_count").Int64()
+
+		retryCount, err := allRetryStats.Get("retry_count").Int64()
 		if err != nil {
-			return retries, err
+			return nil, err
 		}
 
 		retryJobStats = append(retryJobStats, RetryJobStats{
@@ -280,8 +288,5 @@ func (m *Manager) GetRetries(page uint64, pageSize int64, match string) (Retries
 		})
 	}
 
-	retries.TotalRetryCount = storeRetries.TotalRetryCount
-	retries.RetryJobs = retryJobStats
-
-	return retries, nil
+	return retryJobStats, nil
 }

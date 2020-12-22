@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/bitly/go-simplejson"
 	"github.com/go-redis/redis"
 )
 
@@ -152,18 +151,13 @@ func (r *redisStore) GetAllRetries() (*Retries, error) {
 		return nil, err
 	}
 
-	retryJobStats, err := r.getRetryJson(retryJobsGet)
-	if err != nil {
-		return nil, err
-	}
-
 	_, err = pipe.Exec()
 
 	if err != nil && err != redis.Nil {
 		return nil, err
 	}
 
-	retries.RetryJobs = retryJobStats
+	retries.RetryJobs = retryJobsGet
 	retries.TotalRetryCount = retryCountGet.Val()
 
 	return retries, nil
@@ -240,88 +234,4 @@ func (r *redisStore) IncrementStats(metric string) error {
 
 func (r *redisStore) getQueueName(queue string) string {
 	return r.namespace + "queue:" + queue
-}
-
-func (r *redisStore) getRetryJson(retryStats []string) ([]RetryJobStats, error) {
-	// parse json from string of retry data
-	allRetryStats, err := newMsg(retryStats[0])
-	if err != nil {
-		return nil, err
-	}
-
-	class, err := allRetryStats.Get("class").String()
-	if err != nil {
-		return nil, err
-	}
-
-	errorMsg, err := allRetryStats.Get("error_message").String()
-	if err != nil {
-		return nil, err
-	}
-
-	failedAt, err := allRetryStats.Get("failed_at").String()
-	if err != nil {
-		return nil, err
-	}
-
-	jobID, err := allRetryStats.Get("jid").String()
-	if err != nil {
-		return nil, err
-	}
-
-	queue, err := allRetryStats.Get("queue").String()
-	if err != nil {
-		return nil, err
-	}
-
-	retryCount, err := allRetryStats.Get("retry_count").Int64()
-	if err != nil {
-		return nil, err
-	}
-
-	var retryJobStats []RetryJobStats
-	for i := 0; i < len(retryStats[0]); i++ {
-		retryJobStats = append(retryJobStats, RetryJobStats{
-			Class:        class,
-			ErrorMessage: errorMsg,
-			FailedAt:     failedAt,
-			JobID:        jobID,
-			Queue:        queue,
-			RetryCount:   retryCount,
-		})
-	}
-
-	return retryJobStats, nil
-}
-
-type data struct {
-	*simplejson.Json
-}
-
-type Msg struct {
-	*data
-	original  string
-	ack       bool
-	startedAt int64
-}
-
-func newMsg(content string) (*Msg, error) {
-	d, err := newData(content)
-	if err != nil {
-		return nil, err
-	}
-	return &Msg{
-		data:      d,
-		original:  content,
-		ack:       true,
-		startedAt: 0,
-	}, nil
-}
-
-func newData(content string) (*data, error) {
-	json, err := simplejson.NewJson([]byte(content))
-	if err != nil {
-		return nil, err
-	}
-	return &data{json}, nil
 }
