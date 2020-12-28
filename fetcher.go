@@ -91,7 +91,7 @@ func (f *simpleFetcher) tryFetchMessage() {
 		}
 	} else {
 		f.sendMessage(message)
-	}
+  }
 }
 
 func (f *simpleFetcher) sendMessage(message string) {

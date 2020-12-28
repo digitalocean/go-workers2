@@ -1,6 +1,8 @@
 package workers
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"math/rand"
@@ -66,8 +68,15 @@ func RetryMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 
 		}()
 
-		err = next(message)
-		if err != nil {
+		switch next(message) {
+		case nil:
+			val, err := message.Get("unique").Bool()
+			if err == nil && val {
+				rc := mgr.opts.client
+				sum := sha1.Sum([]byte(message.Args().ToJson()))
+				rc.Del(hex.EncodeToString(sum[:])).Result()
+			}
+		default:
 			err = retryProcessError(queue, mgr, message, err)
 		}
 
