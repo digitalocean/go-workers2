@@ -11,11 +11,11 @@ func (s *apiServer) Stats(w http.ResponseWriter, req *http.Request) {
 
 	allStats := []Stats{}
 	for _, m := range s.managers {
-		s, err := m.GetStats()
+		stats, err := m.GetStats()
 		if err != nil {
-			Logger.Println("couldn't retrieve stats for manager:", err)
+			s.logger.Println("couldn't retrieve stats for manager:", err)
 		} else {
-			allStats = append(allStats, s)
+			allStats = append(allStats, stats)
 		}
 	}
 

@@ -2,10 +2,16 @@ package workers
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"github.com/digitalocean/go-workers2/storage"
 )
+
+// Logger is the default go-workers2 logger
+// TODO: remove this
+var Logger = log.New(os.Stdout, "go-workers2: ", log.Ldate|log.Lmicroseconds)
 
 //Fetcher is an interface for managing work messages
 type Fetcher interface {

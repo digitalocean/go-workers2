@@ -9,13 +9,10 @@ import (
 	"sync"
 )
 
-// Logger is the default go-workers2 logger
-// TODO: remove this
-var Logger = log.New(os.Stdout, "go-workers2: ", log.Ldate|log.Lmicroseconds)
-
 type apiServer struct {
 	lock     sync.Mutex
 	managers map[string]*Manager
+	logger   *log.Logger
 }
 
 func (s *apiServer) registerManager(m *Manager) {
@@ -34,6 +31,7 @@ var globalHTTPServer *http.Server
 
 var globalAPIServer = &apiServer{
 	managers: map[string]*Manager{},
+	logger:   log.New(os.Stdout, "go-workers2: ", log.Ldate|log.Lmicroseconds),
 }
 
 // StartAPIServer starts the API server
@@ -43,11 +41,11 @@ func StartAPIServer(port int) {
 	mux.HandleFunc("/stats", globalAPIServer.Stats)
 	mux.HandleFunc("/retries", globalAPIServer.Retries)
 
-	Logger.Println("APIs are available at", fmt.Sprintf("http://localhost:%v/", port))
+	globalAPIServer.logger.Println("APIs are available at", fmt.Sprintf("http://localhost:%v/", port))
 
 	globalHTTPServer = &http.Server{Addr: fmt.Sprint(":", port), Handler: mux}
 	if err := globalHTTPServer.ListenAndServe(); err != nil {
-		Logger.Println(err)
+		globalAPIServer.logger.Println(err)
 	}
 }
 

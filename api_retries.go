@@ -10,14 +10,14 @@ import (
 func (s *apiServer) Retries(w http.ResponseWriter, req *http.Request) {
 	page, pageSizeVal, query, err := parseURLQuery(req)
 	if err != nil {
-		Logger.Println("couldn't retrieve retries filtering query:", err)
+		s.logger.Println("couldn't retrieve retries filtering query:", err)
 	}
 
 	allRetries := []Retries{}
 	for _, m := range s.managers {
 		r, err := m.GetRetries(page, pageSizeVal, query)
 		if err != nil {
-			Logger.Println("couldn't retrieve retries for manager:", err)
+			s.logger.Println("couldn't retrieve retries for manager:", err)
 		} else {
 			allRetries = append(allRetries, r)
 		}
