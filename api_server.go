@@ -4,7 +4,25 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 )
+
+type apiServer struct {
+	lock     sync.Mutex
+	managers map[string]*Manager
+}
+
+func (s *apiServer) registerManager(m *Manager) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.managers[m.uuid] = m
+}
+
+func (s *apiServer) deregisterManager(m *Manager) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	delete(s.managers, m.uuid)
+}
 
 var globalHTTPServer *http.Server
 
