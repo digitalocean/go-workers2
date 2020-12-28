@@ -15,10 +15,12 @@ const (
 	NanoSecondPrecision = 1000000000.0
 )
 
+// Producer is used to enqueue new work
 type Producer struct {
 	opts Options
 }
 
+// EnqueueData stores data and configuration for new work
 type EnqueueData struct {
 	Queue      string      `json:"queue,omitempty"`
 	Class      string      `json:"class"`
@@ -28,12 +30,14 @@ type EnqueueData struct {
 	EnqueueOptions
 }
 
+// EnqueueOptions stores configuration for new work
 type EnqueueOptions struct {
 	RetryCount int     `json:"retry_count,omitempty"`
 	Retry      bool    `json:"retry,omitempty"`
 	At         float64 `json:"at,omitempty"`
 }
 
+// NewProducer creates a new producer with the given options
 func NewProducer(options Options) (*Producer, error) {
 	options, err := processOptions(options)
 	if err != nil {
@@ -45,6 +49,7 @@ func NewProducer(options Options) (*Producer, error) {
 	}, nil
 }
 
+// NewProducerWithRedisClient creates a new producer with the given options and Redis client
 func NewProducerWithRedisClient(options Options, client *redis.Client) (*Producer, error) {
 	options, err := processOptionsWithRedisClient(options, client)
 	if err != nil {
@@ -56,22 +61,28 @@ func NewProducerWithRedisClient(options Options, client *redis.Client) (*Produce
 	}, nil
 }
 
+// GetRedisClient returns the Redis client used by the producer
+// Deprecated: the Redis client is an internal implementation and access will be removed
 func (p *Producer) GetRedisClient() *redis.Client {
 	return p.opts.client
 }
 
+// Enqueue enqueues new work for immediate processing
 func (p *Producer) Enqueue(queue, class string, args interface{}) (string, error) {
 	return p.EnqueueWithOptions(queue, class, args, EnqueueOptions{At: nowToSecondsWithNanoPrecision()})
 }
 
+// EnqueueIn enqueues new work for delayed processing
 func (p *Producer) EnqueueIn(queue, class string, in float64, args interface{}) (string, error) {
 	return p.EnqueueWithOptions(queue, class, args, EnqueueOptions{At: nowToSecondsWithNanoPrecision() + in})
 }
 
+// EnqueueAt enqueues new work for processing at a specific time
 func (p *Producer) EnqueueAt(queue, class string, at time.Time, args interface{}) (string, error) {
 	return p.EnqueueWithOptions(queue, class, args, EnqueueOptions{At: timeToSecondsWithNanoPrecision(at)})
 }
 
+// EnqueueWithOptions enqueues new work for processing with the given options
 func (p *Producer) EnqueueWithOptions(queue, class string, args interface{}, opts EnqueueOptions) (string, error) {
 	now := nowToSecondsWithNanoPrecision()
 	data := EnqueueData{
