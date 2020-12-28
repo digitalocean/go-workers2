@@ -28,16 +28,7 @@ type Stats struct {
 
 type Retries struct {
 	TotalRetryCount int64
-	RetryJobs       []RetryJobStats
-}
-
-type RetryJobStats struct {
-	Class        string
-	ErrorMessage string
-	FailedAt     string
-	JobID        string
-	Queue        string
-	RetryCount   int64
+	RetryJobs       []string
 }
 
 // Store is the interface for storing and retrieving data
