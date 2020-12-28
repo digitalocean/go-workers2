@@ -3,13 +3,9 @@ package workers
 import (
 	"fmt"
 	"log"
-	"os"
 	"runtime"
 	"time"
 )
-
-// Logger is a stdout logger for workers
-var Logger = log.New(os.Stdout, "workers: ", log.Ldate|log.Lmicroseconds)
 
 // LogMiddleware is the default logging middleware
 func LogMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
@@ -17,8 +13,8 @@ func LogMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 		prefix := fmt.Sprint(queue, " JID-", message.Jid())
 
 		start := time.Now()
-		Logger.Println(prefix, "start")
-		Logger.Println(prefix, "args:", message.Args().ToJson())
+		mgr.logger.Println(prefix, "start")
+		mgr.logger.Println(prefix, "args:", message.Args().ToJson())
 
 		defer func() {
 			if e := recover(); e != nil {
@@ -28,7 +24,7 @@ func LogMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 				}
 
 				if err != nil {
-					logProcessError(prefix, start, err)
+					logProcessError(mgr.logger, prefix, start, err)
 				}
 			}
 
@@ -36,9 +32,9 @@ func LogMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 
 		err = next(message)
 		if err != nil {
-			logProcessError(prefix, start, err)
+			logProcessError(mgr.logger, prefix, start, err)
 		} else {
-			Logger.Println(prefix, "done:", time.Since(start))
+			mgr.logger.Println(prefix, "done:", time.Since(start))
 		}
 
 		return
@@ -46,10 +42,10 @@ func LogMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 
 }
 
-func logProcessError(prefix string, start time.Time, err error) {
-	Logger.Println(prefix, "fail:", time.Since(start))
+func logProcessError(logger *log.Logger, prefix string, start time.Time, err error) {
+	logger.Println(prefix, "fail:", time.Since(start))
 
 	buf := make([]byte, 4096)
 	buf = buf[:runtime.Stack(buf, false)]
-	Logger.Printf("%s error: %v\n%s", prefix, err, buf)
+	logger.Printf("%s error: %v\n%s", prefix, err, buf)
 }

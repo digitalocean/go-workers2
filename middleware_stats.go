@@ -36,6 +36,6 @@ func incrementStats(mgr *Manager, metric string) {
 	err := mgr.opts.store.IncrementStats(metric)
 
 	if err != nil {
-		Logger.Println("couldn't save stats:", err)
+		mgr.logger.Println("couldn't save stats:", err)
 	}
 }

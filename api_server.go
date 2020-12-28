@@ -3,9 +3,15 @@ package workers
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"sync"
 )
+
+// Logger is the default go-workers2 logger
+// TODO: remove this
+var Logger = log.New(os.Stdout, "go-workers2: ", log.Ldate|log.Lmicroseconds)
 
 type apiServer struct {
 	lock     sync.Mutex
