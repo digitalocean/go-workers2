@@ -9,6 +9,11 @@ import (
 	"sync"
 )
 
+// APIOptions contains the set of configuration options for the global api
+type APIOptions struct {
+	Logger *log.Logger
+}
+
 type apiServer struct {
 	lock     sync.Mutex
 	managers map[string]*Manager
@@ -32,6 +37,13 @@ var globalHTTPServer *http.Server
 var globalAPIServer = &apiServer{
 	managers: map[string]*Manager{},
 	logger:   log.New(os.Stdout, "go-workers2: ", log.Ldate|log.Lmicroseconds),
+}
+
+// ConfigureAPIServer allows global API server configuration with the given options
+func ConfigureAPIServer(options APIOptions) {
+	if options.Logger != nil {
+		globalAPIServer.logger = options.Logger
+	}
 }
 
 // StartAPIServer starts the API server
