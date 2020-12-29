@@ -11,7 +11,7 @@ clean-docker:
 # Test
 .PHONY: test
 test:
-	go test -timeout 45s -v
+	go test -timeout 60s -v
 
 .PHONY: local-test
 local-test: start-docker test clean-docker
