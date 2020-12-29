@@ -3,6 +3,8 @@ package workers
 import (
 	"crypto/tls"
 	"errors"
+	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -27,6 +29,9 @@ type Options struct {
 
 	// Optional display name used when displaying manager stats
 	ManagerDisplayName string
+
+	// Log
+	Logger *log.Logger
 
 	client *redis.Client
 	store  storage.Store
@@ -74,6 +79,10 @@ func processOptions(options Options) (Options, error) {
 	redisStore := storage.NewRedisStore(options.Namespace, options.client)
 	options.store = redisStore
 
+	if options.Logger == nil {
+		options.Logger = log.New(os.Stdout, "go-workers2: ", log.Ldate|log.Lmicroseconds)
+	}
+
 	return options, nil
 }
 
@@ -91,6 +100,10 @@ func processOptionsWithRedisClient(options Options, client *redis.Client) (Optio
 
 	redisStore := storage.NewRedisStore(options.Namespace, options.client)
 	options.store = redisStore
+
+	if options.Logger == nil {
+		options.Logger = log.New(os.Stdout, "go-workers2: ", log.Ldate|log.Lmicroseconds)
+	}
 
 	return options, nil
 }

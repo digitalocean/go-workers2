@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"log"
 	"os"
 	"sync"
 
@@ -17,6 +18,7 @@ type Manager struct {
 	lock     sync.Mutex
 	signal   chan os.Signal
 	running  bool
+	logger   *log.Logger
 
 	beforeStartHooks []func()
 	duringDrainHooks []func()
