@@ -76,12 +76,12 @@ func processOptions(options Options) (Options, error) {
 		return Options{}, errors.New("Options requires either the Server or Sentinels option")
 	}
 
-	redisStore := storage.NewRedisStore(options.Namespace, options.client)
-	options.store = redisStore
-
 	if options.Logger == nil {
 		options.Logger = log.New(os.Stdout, "go-workers2: ", log.Ldate|log.Lmicroseconds)
 	}
+
+	redisStore := storage.NewRedisStore(options.Namespace, options.client, options.Logger)
+	options.store = redisStore
 
 	return options, nil
 }
@@ -98,12 +98,12 @@ func processOptionsWithRedisClient(options Options, client *redis.Client) (Optio
 
 	options.client = client
 
-	redisStore := storage.NewRedisStore(options.Namespace, options.client)
-	options.store = redisStore
-
 	if options.Logger == nil {
 		options.Logger = log.New(os.Stdout, "go-workers2: ", log.Ldate|log.Lmicroseconds)
 	}
+
+	redisStore := storage.NewRedisStore(options.Namespace, options.client, options.Logger)
+	options.store = redisStore
 
 	return options, nil
 }

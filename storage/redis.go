@@ -3,7 +3,6 @@ package storage
 import (
 	"fmt"
 	"log"
-	"os"
 	"strconv"
 	"time"
 
@@ -21,11 +20,11 @@ type redisStore struct {
 var _ Store = &redisStore{}
 
 // NewRedisStore returns a new Redis store with the given namespace and preconfigured client
-func NewRedisStore(namespace string, client *redis.Client) Store {
+func NewRedisStore(namespace string, client *redis.Client, logger *log.Logger) Store {
 	return &redisStore{
 		namespace: namespace,
 		client:    client,
-		logger:    log.New(os.Stdout, "workers: ", log.Ldate|log.Lmicroseconds),
+		logger:    logger,
 	}
 }
 
