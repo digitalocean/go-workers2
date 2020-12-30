@@ -46,12 +46,16 @@ func ConfigureAPIServer(options APIOptions) {
 	}
 }
 
+// RegisterAPIEndpoints sets up API server endpoints
+func RegisterAPIEndpoints(mux *http.ServeMux) {
+	mux.HandleFunc("/stats", globalAPIServer.Stats)
+	mux.HandleFunc("/retries", globalAPIServer.Retries)
+}
+
 // StartAPIServer starts the API server
 func StartAPIServer(port int) {
 	mux := http.NewServeMux()
-
-	mux.HandleFunc("/stats", globalAPIServer.Stats)
-	mux.HandleFunc("/retries", globalAPIServer.Retries)
+	RegisterAPIEndpoints(mux)
 
 	globalAPIServer.logger.Println("APIs are available at", fmt.Sprintf("http://localhost:%v/", port))
 
