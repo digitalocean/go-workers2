@@ -24,6 +24,7 @@ func (s *apiServer) Stats(w http.ResponseWriter, req *http.Request) {
 	enc.Encode(allStats)
 }
 
+// Stats containts current stats for a manager
 type Stats struct {
 	Name       string                 `json:"manager_name"`
 	Processed  int64                  `json:"processed"`
@@ -33,6 +34,7 @@ type Stats struct {
 	RetryCount int64                  `json:"retry_count"`
 }
 
+// JobStatus contains the status and data for active jobs of a manager
 type JobStatus struct {
 	Message   *Msg  `json:"message"`
 	StartedAt int64 `json:"started_at"`

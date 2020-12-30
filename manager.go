@@ -231,52 +231,52 @@ func (m *Manager) GetRetries(page uint64, pageSize int64, match string) (Retries
 		return Retries{}, err
 	}
 
-	retryJobStats, err := getRetryJSON(storeRetries.RetryJobs)
+	retryJobs, err := getRetryJSON(storeRetries.RetryJobs)
 	if err != nil {
 		return Retries{}, err
 	}
 
 	return Retries{
 		TotalRetryCount: storeRetries.TotalRetryCount,
-		RetryJobs:       retryJobStats,
+		RetryJobs:       retryJobs,
 	}, nil
 }
 
-func getRetryJSON(retryStats []string) ([]RetryJobStats, error) {
+func getRetryJSON(retryJobs []string) ([]RetryJobStats, error) {
 	var retryJobStats []RetryJobStats
-	for _, r := range retryStats {
+	for _, r := range retryJobs {
 		// parse json from string of retry data
-		allRetryStats, err := NewMsg(r)
+		retryJob, err := NewMsg(r)
 		if err != nil {
 			return nil, err
 		}
 
-		class, err := allRetryStats.Get("class").String()
+		class, err := retryJob.Get("class").String()
 		if err != nil {
 			return nil, err
 		}
 
-		errorMsg, err := allRetryStats.Get("error_message").String()
+		errorMsg, err := retryJob.Get("error_message").String()
 		if err != nil {
 			return nil, err
 		}
 
-		failedAt, err := allRetryStats.Get("failed_at").String()
+		failedAt, err := retryJob.Get("failed_at").String()
 		if err != nil {
 			return nil, err
 		}
 
-		jobID, err := allRetryStats.Get("jid").String()
+		jobID, err := retryJob.Get("jid").String()
 		if err != nil {
 			return nil, err
 		}
 
-		queue, err := allRetryStats.Get("queue").String()
+		queue, err := retryJob.Get("queue").String()
 		if err != nil {
 			return nil, err
 		}
 
-		retryCount, err := allRetryStats.Get("retry_count").Int64()
+		retryCount, err := retryJob.Get("retry_count").Int64()
 		if err != nil {
 			return nil, err
 		}

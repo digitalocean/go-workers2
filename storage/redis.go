@@ -146,7 +146,7 @@ func (r *redisStore) GetAllRetries(ctx context.Context) (*Retries, error) {
 	pipe := r.client.Pipeline()
 	retries := &Retries{}
 	retryCountGet := pipe.ZCard(ctx, r.namespace+RetryKey)
-	retryJobsGet, err := r.client.ZRange(ctx, r.namespace+RetryKey, 0, 1).Result()
+	retryJobsGet, err := r.client.ZRange(ctx, r.namespace+RetryKey, 0, -1).Result()
 	if err != nil {
 		return nil, err
 	}

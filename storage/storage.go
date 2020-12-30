@@ -11,6 +11,7 @@ const (
 	ScheduledJobsKey = "schedule"
 )
 
+// StorageError is used to return errors from the storage layer
 type StorageError string
 
 func (e StorageError) Error() string { return string(e) }
@@ -20,6 +21,7 @@ const (
 	NoMessage = StorageError("no message")
 )
 
+// Stats has all the stats related to a manager
 type Stats struct {
 	Processed  int64
 	Failed     int64
@@ -27,6 +29,7 @@ type Stats struct {
 	Enqueued   map[string]int64
 }
 
+// Retries has the list of messages in the retry queue
 type Retries struct {
 	TotalRetryCount int64
 	RetryJobs       []string
