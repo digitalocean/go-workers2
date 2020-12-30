@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"context"
 	"fmt"
 )
 
@@ -33,7 +34,7 @@ func StatsMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 }
 
 func incrementStats(mgr *Manager, metric string) {
-	err := mgr.opts.store.IncrementStats(metric)
+	err := mgr.opts.store.IncrementStats(context.Background(), metric)
 
 	if err != nil {
 		mgr.logger.Println("couldn't save stats:", err)

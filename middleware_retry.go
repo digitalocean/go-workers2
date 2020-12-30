@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"math/rand"
@@ -33,7 +34,7 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 			) * time.Second,
 		)
 
-		err = mgr.opts.store.EnqueueRetriedMessage(nowToSecondsWithNanoPrecision()+waitDuration, message.ToJson())
+		err = mgr.opts.store.EnqueueRetriedMessage(context.Background(), nowToSecondsWithNanoPrecision()+waitDuration, message.ToJson())
 
 		// If we can't add the job to the retry queue,
 		// then we shouldn't acknowledge the job, otherwise

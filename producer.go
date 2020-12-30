@@ -1,13 +1,14 @@
 package workers
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"time"
 
-	"github.com/go-redis/redis"
+	"github.com/go-redis/redis/v8"
 )
 
 const (
@@ -100,16 +101,16 @@ func (p *Producer) EnqueueWithOptions(queue, class string, args interface{}, opt
 	}
 
 	if now < opts.At {
-		err = p.opts.store.EnqueueScheduledMessage(data.At, string(bytes))
+		err = p.opts.store.EnqueueScheduledMessage(context.Background(), data.At, string(bytes))
 		return data.Jid, err
 	}
 
-	err = p.opts.store.CreateQueue(queue)
+	err = p.opts.store.CreateQueue(context.Background(), queue)
 	if err != nil {
 		return "", err
 	}
 
-	err = p.opts.store.EnqueueMessageNow(queue, string(bytes))
+	err = p.opts.store.EnqueueMessageNow(context.Background(), queue, string(bytes))
 	if err != nil {
 		return "", err
 	}

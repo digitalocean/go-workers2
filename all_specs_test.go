@@ -1,5 +1,7 @@
 package workers
 
+import "context"
+
 func setupTestOptions() (Options, error) {
 	return setupTestOptionsWithNamespace("")
 }
@@ -7,7 +9,7 @@ func setupTestOptions() (Options, error) {
 func setupTestOptionsWithNamespace(namespace string) (Options, error) {
 	opts, err := processOptions(testOptionsWithNamespace(namespace))
 	if opts.client != nil {
-		opts.client.FlushDB().Result()
+		opts.client.FlushDB(context.Background()).Result()
 	}
 	return opts, err
 }

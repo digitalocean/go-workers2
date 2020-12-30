@@ -1,19 +1,20 @@
 package workers
 
 import (
+	"context"
 	"crypto/tls"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/go-redis/redis"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 )
 
 func newTestManager(opts Options) (*Manager, error) {
 	mgr, err := NewManager(opts)
 	if mgr != nil {
-		mgr.opts.client.FlushDB().Result()
+		mgr.opts.client.FlushDB(context.Background()).Result()
 	}
 	return mgr, err
 }
