@@ -12,12 +12,14 @@ import (
 // APIOptions contains the set of configuration options for the global api
 type APIOptions struct {
 	Logger *log.Logger
+	Mux    *http.ServeMux
 }
 
 type apiServer struct {
 	lock     sync.Mutex
 	managers map[string]*Manager
 	logger   *log.Logger
+	mux      *http.ServeMux
 }
 
 func (s *apiServer) registerManager(m *Manager) {
@@ -37,12 +39,17 @@ var globalHTTPServer *http.Server
 var globalAPIServer = &apiServer{
 	managers: map[string]*Manager{},
 	logger:   log.New(os.Stdout, "go-workers2: ", log.Ldate|log.Lmicroseconds),
+	mux:      http.NewServeMux(),
 }
 
 // ConfigureAPIServer allows global API server configuration with the given options
 func ConfigureAPIServer(options APIOptions) {
 	if options.Logger != nil {
 		globalAPIServer.logger = options.Logger
+	}
+
+	if options.Mux != nil {
+		globalAPIServer.mux = options.Mux
 	}
 }
 
@@ -54,12 +61,11 @@ func RegisterAPIEndpoints(mux *http.ServeMux) {
 
 // StartAPIServer starts the API server
 func StartAPIServer(port int) {
-	mux := http.NewServeMux()
-	RegisterAPIEndpoints(mux)
+	RegisterAPIEndpoints(globalAPIServer.mux)
 
 	globalAPIServer.logger.Println("APIs are available at", fmt.Sprintf("http://localhost:%v/", port))
 
-	globalHTTPServer = &http.Server{Addr: fmt.Sprint(":", port), Handler: mux}
+	globalHTTPServer = &http.Server{Addr: fmt.Sprint(":", port), Handler: globalAPIServer.mux}
 	if err := globalHTTPServer.ListenAndServe(); err != nil {
 		globalAPIServer.logger.Println(err)
 	}
