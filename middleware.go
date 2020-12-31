@@ -36,6 +36,7 @@ var defaultMiddlewares = NewMiddlewares(
 	LogMiddleware,
 	RetryMiddleware,
 	StatsMiddleware,
+	RecoverMiddleware,
 )
 
 // DefaultMiddlewares creates the default middleware pipeline

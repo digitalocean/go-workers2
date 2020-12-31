@@ -11,15 +11,6 @@ import (
 func TestTaskRunner_process(t *testing.T) {
 	msg, _ := NewMsg(`{}`)
 
-	t.Run("handles-panic", func(t *testing.T) {
-		tr := newTaskRunner(func(m *Msg) error {
-			panic("task-test-panic")
-		})
-		err := tr.process(msg)
-		assert.EqualError(t, err, "task-test-panic")
-
-	})
-
 	t.Run("returns-error", func(t *testing.T) {
 		var errorToRet error
 		tr := newTaskRunner(func(m *Msg) error {
