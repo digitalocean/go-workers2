@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"context"
 	"strings"
 	"time"
 )
@@ -32,7 +33,7 @@ func (s *scheduledWorker) poll() {
 	now := nowToSecondsWithNanoPrecision()
 
 	for {
-		rawMessage, err := s.opts.store.DequeueScheduledMessage(now)
+		rawMessage, err := s.opts.store.DequeueScheduledMessage(context.Background(), now)
 
 		if err != nil {
 			break
@@ -43,11 +44,11 @@ func (s *scheduledWorker) poll() {
 		queue = strings.TrimPrefix(queue, s.opts.Namespace)
 		message.Set("enqueued_at", nowToSecondsWithNanoPrecision())
 
-		s.opts.store.EnqueueMessageNow(queue, message.ToJson())
+		s.opts.store.EnqueueMessageNow(context.Background(), queue, message.ToJson())
 	}
 
 	for {
-		rawMessage, err := s.opts.store.DequeueRetriedMessage(now)
+		rawMessage, err := s.opts.store.DequeueRetriedMessage(context.Background(), now)
 
 		if err != nil {
 			break
@@ -58,7 +59,7 @@ func (s *scheduledWorker) poll() {
 		queue = strings.TrimPrefix(queue, s.opts.Namespace)
 		message.Set("enqueued_at", nowToSecondsWithNanoPrecision())
 
-		s.opts.store.EnqueueMessageNow(queue, message.ToJson())
+		s.opts.store.EnqueueMessageNow(context.Background(), queue, message.ToJson())
 	}
 }
 

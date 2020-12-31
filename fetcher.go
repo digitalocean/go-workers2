@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -88,7 +89,7 @@ func (f *simpleFetcher) Fetch() {
 }
 
 func (f *simpleFetcher) tryFetchMessage() {
-	message, err := f.store.DequeueMessage(f.queue, f.inprogressQueue(), 1*time.Second)
+	message, err := f.store.DequeueMessage(context.Background(), f.queue, f.inprogressQueue(), 1*time.Second)
 	if err != nil {
 		// If redis returns null, the queue is empty.
 		// Just ignore empty queue errors; print all other errors.
@@ -112,7 +113,7 @@ func (f *simpleFetcher) sendMessage(message string) {
 }
 
 func (f *simpleFetcher) Acknowledge(message *Msg) {
-	f.store.AcknowledgeMessage(f.inprogressQueue(), message.OriginalJson())
+	f.store.AcknowledgeMessage(context.Background(), f.inprogressQueue(), message.OriginalJson())
 }
 
 func (f *simpleFetcher) Messages() chan *Msg {
@@ -138,7 +139,7 @@ func (f *simpleFetcher) Closed() bool {
 }
 
 func (f *simpleFetcher) inprogressMessages() []string {
-	messages, err := f.store.ListMessages(f.inprogressQueue())
+	messages, err := f.store.ListMessages(context.Background(), f.inprogressQueue())
 	if err != nil {
 		Logger.Println("ERR: ", err)
 	}

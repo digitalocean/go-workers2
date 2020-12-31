@@ -1,11 +1,12 @@
 package workers
 
 import (
+	"context"
 	"log"
 	"os"
 	"sync"
 
-	"github.com/go-redis/redis"
+	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 )
 
@@ -204,7 +205,7 @@ func (m *Manager) GetStats() (Stats, error) {
 		q = append(q, queue)
 	}
 
-	storeStats, err := m.opts.store.GetAllStats(q)
+	storeStats, err := m.opts.store.GetAllStats(context.Background(), q)
 
 	if err != nil {
 		return stats, err
@@ -225,7 +226,7 @@ func (m *Manager) GetStats() (Stats, error) {
 func (m *Manager) GetRetries(page uint64, pageSize int64, match string) (Retries, error) {
 	// TODO: add back pagination and filtering
 
-	storeRetries, err := m.opts.store.GetAllRetries()
+	storeRetries, err := m.opts.store.GetAllRetries(context.Background())
 	if err != nil {
 		return Retries{}, err
 	}

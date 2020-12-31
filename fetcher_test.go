@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,6 +22,8 @@ func TestFetchConfig(t *testing.T) {
 }
 
 func TestGetMessagesToChannel(t *testing.T) {
+	ctx := context.Background()
+
 	opts, err := setupTestOptions()
 	assert.NoError(t, err)
 
@@ -29,14 +32,14 @@ func TestGetMessagesToChannel(t *testing.T) {
 
 	rc := opts.client
 
-	rc.LPush("queue:fetchQueue2", message.ToJson()).Result()
+	rc.LPush(ctx, "queue:fetchQueue2", message.ToJson()).Result()
 
 	fetch.Ready() <- true
 	fetchedMessage := <-fetch.Messages()
 
 	assert.Equal(t, message, fetchedMessage)
 
-	len, err := rc.LLen("queue:fetchQueue2").Result()
+	len, err := rc.LLen(ctx, "queue:fetchQueue2").Result()
 	assert.NoError(t, err)
 	assert.Equal(t, int64(0), len)
 
@@ -44,6 +47,8 @@ func TestGetMessagesToChannel(t *testing.T) {
 }
 
 func TestMoveProgressMessageToPrivateQueue(t *testing.T) {
+	ctx := context.Background()
+
 	opts, err := setupTestOptions()
 	assert.NoError(t, err)
 	message, _ := NewMsg("{\"foo\":\"bar\"}")
@@ -52,16 +57,16 @@ func TestMoveProgressMessageToPrivateQueue(t *testing.T) {
 
 	rc := opts.client
 
-	rc.LPush("queue:fetchQueue3", message.ToJson())
+	rc.LPush(ctx, "queue:fetchQueue3", message.ToJson())
 
 	fetch.Ready() <- true
 	<-fetch.Messages()
 
-	len, err := rc.LLen("queue:fetchQueue3:1:inprogress").Result()
+	len, err := rc.LLen(ctx, "queue:fetchQueue3:1:inprogress").Result()
 	assert.NoError(t, err)
 	assert.Equal(t, int64(1), len)
 
-	messages, err := rc.LRange("queue:fetchQueue3:1:inprogress", 0, -1).Result()
+	messages, err := rc.LRange(ctx, "queue:fetchQueue3:1:inprogress", 0, -1).Result()
 	assert.NoError(t, err)
 	assert.Equal(t, message.ToJson(), messages[0])
 
@@ -69,6 +74,8 @@ func TestMoveProgressMessageToPrivateQueue(t *testing.T) {
 }
 
 func TestRemoveProgressMessageWhenAcked(t *testing.T) {
+	ctx := context.Background()
+
 	opts, err := setupTestOptions()
 	assert.NoError(t, err)
 	message, _ := NewMsg("{\"foo\":\"bar\"}")
@@ -77,14 +84,14 @@ func TestRemoveProgressMessageWhenAcked(t *testing.T) {
 
 	rc := opts.client
 
-	rc.LPush("queue:fetchQueue4", message.ToJson()).Result()
+	rc.LPush(ctx, "queue:fetchQueue4", message.ToJson()).Result()
 
 	fetch.Ready() <- true
 	<-fetch.Messages()
 
 	fetch.Acknowledge(message)
 
-	len, err := rc.LLen("queue:fetchQueue4:1:inprogress").Result()
+	len, err := rc.LLen(ctx, "queue:fetchQueue4:1:inprogress").Result()
 	assert.NoError(t, err)
 	assert.Equal(t, int64(0), len)
 
@@ -92,6 +99,8 @@ func TestRemoveProgressMessageWhenAcked(t *testing.T) {
 }
 
 func TestRemoveProgressMessageDifferentSerialization(t *testing.T) {
+	ctx := context.Background()
+
 	opts, err := setupTestOptions()
 	assert.NoError(t, err)
 
@@ -104,14 +113,14 @@ func TestRemoveProgressMessageDifferentSerialization(t *testing.T) {
 
 	rc := opts.client
 
-	rc.LPush("queue:fetchQueue5", json).Result()
+	rc.LPush(ctx, "queue:fetchQueue5", json).Result()
 
 	fetch.Ready() <- true
 	<-fetch.Messages()
 
 	fetch.Acknowledge(message)
 
-	len, err := rc.LLen("queue:fetchQueue5:1:inprogress").Result()
+	len, err := rc.LLen(ctx, "queue:fetchQueue5:1:inprogress").Result()
 	assert.NoError(t, err)
 	assert.Equal(t, int64(0), len)
 
@@ -119,6 +128,8 @@ func TestRemoveProgressMessageDifferentSerialization(t *testing.T) {
 }
 
 func TestRetryInprogressMessages(t *testing.T) {
+	ctx := context.Background()
+
 	opts, err := setupTestOptions()
 	assert.NoError(t, err)
 
@@ -128,9 +139,9 @@ func TestRetryInprogressMessages(t *testing.T) {
 
 	rc := opts.client
 
-	rc.LPush("queue:fetchQueue6:1:inprogress", message.ToJson()).Result()
-	rc.LPush("queue:fetchQueue6:1:inprogress", message2.ToJson()).Result()
-	rc.LPush("queue:fetchQueue6", message3.ToJson()).Result()
+	rc.LPush(ctx, "queue:fetchQueue6:1:inprogress", message.ToJson()).Result()
+	rc.LPush(ctx, "queue:fetchQueue6:1:inprogress", message2.ToJson()).Result()
+	rc.LPush(ctx, "queue:fetchQueue6", message3.ToJson()).Result()
 
 	fetch := buildFetch("fetchQueue6", opts)
 
@@ -145,7 +156,7 @@ func TestRetryInprogressMessages(t *testing.T) {
 	fetch.Acknowledge(message2)
 	fetch.Acknowledge(message3)
 
-	len, err := rc.LLen("queue:fetchQueue6:1:inprogress").Result()
+	len, err := rc.LLen(ctx, "queue:fetchQueue6:1:inprogress").Result()
 	assert.NoError(t, err)
 	assert.Equal(t, int64(0), len)
 
