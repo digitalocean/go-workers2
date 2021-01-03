@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"log"
 	"sync"
 )
 
@@ -12,9 +13,10 @@ type worker struct {
 	runnersLock sync.Mutex
 	stop        chan bool
 	running     bool
+	logger      *log.Logger
 }
 
-func newWorker(queue string, concurrency int, handler JobFunc) *worker {
+func newWorker(logger *log.Logger, queue string, concurrency int, handler JobFunc) *worker {
 	if concurrency <= 0 {
 		concurrency = 1
 	}
@@ -23,6 +25,7 @@ func newWorker(queue string, concurrency int, handler JobFunc) *worker {
 		handler:     handler,
 		concurrency: concurrency,
 		stop:        make(chan bool),
+		logger:      logger,
 	}
 	return w
 }
@@ -48,7 +51,7 @@ func (w *worker) start(fetcher Fetcher) {
 	done := make(chan *Msg)
 	w.runners = make([]*taskRunner, w.concurrency)
 	for i := 0; i < w.concurrency; i++ {
-		r := newTaskRunner(w.handler)
+		r := newTaskRunner(w.logger, w.handler)
 		w.runners[i] = r
 		go func() {
 			r.work(fetcher.Messages(), done, fetcher.Ready())

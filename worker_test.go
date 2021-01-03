@@ -27,7 +27,7 @@ func (d dummyFetcher) Closed() bool        { return d.closed() }
 
 func TestNewWorker(t *testing.T) {
 	cc := newCallCounter()
-	w := newWorker("q", 0, cc.F)
+	w := newWorker(Logger, "q", 0, cc.F)
 	assert.Equal(t, "q", w.queue)
 	assert.Equal(t, 1, w.concurrency)
 	assert.NotNil(t, w.stop)
@@ -36,10 +36,10 @@ func TestNewWorker(t *testing.T) {
 	w.handler(nil)
 	assert.Equal(t, 1, cc.count)
 
-	w = newWorker("q", -5, cc.F)
+	w = newWorker(Logger, "q", -5, cc.F)
 	assert.Equal(t, 1, w.concurrency)
 
-	w = newWorker("q", 10, cc.F)
+	w = newWorker(Logger, "q", 10, cc.F)
 	assert.Equal(t, 10, w.concurrency)
 }
 
@@ -71,7 +71,7 @@ func TestWorker(t *testing.T) {
 
 	cc := newCallCounter()
 
-	w := newWorker("q", 2, cc.F)
+	w := newWorker(Logger, "q", 2, cc.F)
 
 	var wg sync.WaitGroup
 	go func() {
@@ -160,7 +160,7 @@ func TestWorkerProcessesAndAcksMessages(t *testing.T) {
 	}
 
 	cc := newCallCounter()
-	w := newWorker("q", 1, cc.F)
+	w := newWorker(Logger, "q", 1, cc.F)
 
 	var wg sync.WaitGroup
 
