@@ -10,10 +10,6 @@ import (
 	"github.com/digitalocean/go-workers2/storage"
 )
 
-// Logger is the default go-workers2 logger
-// TODO: remove this
-var Logger = log.New(os.Stdout, "go-workers2: ", log.Ldate|log.Lmicroseconds)
-
 //Fetcher is an interface for managing work messages
 type Fetcher interface {
 	Queue() string
@@ -34,9 +30,15 @@ type simpleFetcher struct {
 	stop      chan bool
 	exit      chan bool
 	closed    chan bool
+	logger    *log.Logger
 }
 
 func newSimpleFetcher(queue string, opts Options) *simpleFetcher {
+	logger := opts.Logger
+	if logger == nil {
+		logger = log.New(os.Stdout, "go-workers2: ", log.Ldate|log.Lmicroseconds)
+	}
+
 	return &simpleFetcher{
 		store:     opts.store,
 		processID: opts.ProcessID,
@@ -46,6 +48,7 @@ func newSimpleFetcher(queue string, opts Options) *simpleFetcher {
 		stop:      make(chan bool),
 		exit:      make(chan bool),
 		closed:    make(chan bool),
+		logger:    logger,
 	}
 }
 
@@ -94,7 +97,7 @@ func (f *simpleFetcher) tryFetchMessage() {
 		// If redis returns null, the queue is empty.
 		// Just ignore empty queue errors; print all other errors.
 		if err != storage.NoMessage {
-			Logger.Println("ERR: ", f.queue, err)
+			f.logger.Println("ERR: ", f.queue, err)
 		}
 	} else {
 		f.sendMessage(message)
@@ -105,7 +108,7 @@ func (f *simpleFetcher) sendMessage(message string) {
 	msg, err := NewMsg(message)
 
 	if err != nil {
-		Logger.Println("ERR: Couldn't create message from", message, ":", err)
+		f.logger.Println("ERR: Couldn't create message from", message, ":", err)
 		return
 	}
 
@@ -141,7 +144,7 @@ func (f *simpleFetcher) Closed() bool {
 func (f *simpleFetcher) inprogressMessages() []string {
 	messages, err := f.store.ListMessages(context.Background(), f.inprogressQueue())
 	if err != nil {
-		Logger.Println("ERR: ", err)
+		f.logger.Println("ERR: ", err)
 	}
 
 	return messages

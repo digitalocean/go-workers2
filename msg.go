@@ -1,10 +1,16 @@
 package workers
 
 import (
+	"log"
+	"os"
 	"reflect"
 
 	"github.com/bitly/go-simplejson"
 )
+
+// Logger is the default go-workers2 logger, only used here in this file.
+// TODO: remove this
+var Logger = log.New(os.Stdout, "go-workers2: ", log.Ldate|log.Lmicroseconds)
 
 type data struct {
 	*simplejson.Json
