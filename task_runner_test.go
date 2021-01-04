@@ -12,7 +12,7 @@ func TestTaskRunner_process(t *testing.T) {
 	msg, _ := NewMsg(`{}`)
 
 	t.Run("handles-panic", func(t *testing.T) {
-		tr := newTaskRunner(func(m *Msg) error {
+		tr := newTaskRunner(Logger, func(m *Msg) error {
 			panic("task-test-panic")
 		})
 		err := tr.process(msg)
@@ -22,7 +22,7 @@ func TestTaskRunner_process(t *testing.T) {
 
 	t.Run("returns-error", func(t *testing.T) {
 		var errorToRet error
-		tr := newTaskRunner(func(m *Msg) error {
+		tr := newTaskRunner(Logger, func(m *Msg) error {
 			return errorToRet
 		})
 		err := tr.process(msg)
@@ -49,7 +49,7 @@ func TestTaskRunner(t *testing.T) {
 		return m
 	}
 
-	tr := newTaskRunner(func(m *Msg) error {
+	tr := newTaskRunner(Logger, func(m *Msg) error {
 		if m.Get("sync").MustBool() {
 			syncCh <- true
 			<-syncCh

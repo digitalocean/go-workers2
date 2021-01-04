@@ -35,8 +35,9 @@ func NewManager(options Options) (*Manager, error) {
 	}
 
 	return &Manager{
-		uuid: uuid.New().String(),
-		opts: options,
+		uuid:   uuid.New().String(),
+		logger: options.Logger,
+		opts:   options,
 	}, nil
 }
 
@@ -48,8 +49,9 @@ func NewManagerWithRedisClient(options Options, client *redis.Client) (*Manager,
 	}
 
 	return &Manager{
-		uuid: uuid.New().String(),
-		opts: options,
+		uuid:   uuid.New().String(),
+		logger: options.Logger,
+		opts:   options,
 	}, nil
 }
 
@@ -69,7 +71,7 @@ func (m *Manager) AddWorker(queue string, concurrency int, job JobFunc, mids ...
 	} else {
 		job = NewMiddlewares(mids...).build(middlewareQueueName, m, job)
 	}
-	m.workers = append(m.workers, newWorker(queue, concurrency, job))
+	m.workers = append(m.workers, newWorker(m.logger, queue, concurrency, job))
 }
 
 // AddBeforeStartHooks adds functions to be executed before the manager starts

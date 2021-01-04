@@ -2,6 +2,7 @@ package workers
 
 import (
 	"fmt"
+	"log"
 	"sync"
 	"time"
 )
@@ -11,6 +12,7 @@ type taskRunner struct {
 	handler    JobFunc
 	currentMsg *Msg
 	lock       sync.RWMutex
+	logger     *log.Logger
 }
 
 func (w *taskRunner) quit() {
@@ -27,7 +29,9 @@ func (w *taskRunner) work(messages <-chan *Msg, done chan<- *Msg, ready chan<- b
 			w.currentMsg = msg
 			w.lock.Unlock()
 
-			w.process(msg)
+			if err := w.process(msg); err != nil {
+				w.logger.Println("ERR:", err)
+			}
 
 			w.lock.Lock()
 			w.currentMsg = nil
@@ -63,9 +67,10 @@ func (w *taskRunner) inProgressMessage() *Msg {
 	return w.currentMsg
 }
 
-func newTaskRunner(handler JobFunc) *taskRunner {
+func newTaskRunner(logger *log.Logger, handler JobFunc) *taskRunner {
 	return &taskRunner{
 		handler: handler,
 		stop:    make(chan bool),
+		logger:  logger,
 	}
 }
