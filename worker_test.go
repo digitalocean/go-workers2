@@ -1,6 +1,8 @@
 package workers
 
 import (
+	"log"
+	"os"
 	"sync"
 	"testing"
 
@@ -26,8 +28,10 @@ func (d dummyFetcher) Close()              { d.close() }
 func (d dummyFetcher) Closed() bool        { return d.closed() }
 
 func TestNewWorker(t *testing.T) {
+	testLogger := log.New(os.Stdout, "test-go-workers2: ", log.Ldate|log.Lmicroseconds)
+
 	cc := newCallCounter()
-	w := newWorker(Logger, "q", 0, cc.F)
+	w := newWorker(testLogger, "q", 0, cc.F)
 	assert.Equal(t, "q", w.queue)
 	assert.Equal(t, 1, w.concurrency)
 	assert.NotNil(t, w.stop)
@@ -36,14 +40,16 @@ func TestNewWorker(t *testing.T) {
 	w.handler(nil)
 	assert.Equal(t, 1, cc.count)
 
-	w = newWorker(Logger, "q", -5, cc.F)
+	w = newWorker(testLogger, "q", -5, cc.F)
 	assert.Equal(t, 1, w.concurrency)
 
-	w = newWorker(Logger, "q", 10, cc.F)
+	w = newWorker(testLogger, "q", 10, cc.F)
 	assert.Equal(t, 10, w.concurrency)
 }
 
 func TestWorker(t *testing.T) {
+	testLogger := log.New(os.Stdout, "test-go-workers2: ", log.Ldate|log.Lmicroseconds)
+
 	readyCh := make(chan bool)
 	msgCh := make(chan *Msg)
 	ackCh := make(chan *Msg)
@@ -71,7 +77,7 @@ func TestWorker(t *testing.T) {
 
 	cc := newCallCounter()
 
-	w := newWorker(Logger, "q", 2, cc.F)
+	w := newWorker(testLogger, "q", 2, cc.F)
 
 	var wg sync.WaitGroup
 	go func() {
@@ -137,6 +143,8 @@ func TestWorker(t *testing.T) {
 }
 
 func TestWorkerProcessesAndAcksMessages(t *testing.T) {
+	testLogger := log.New(os.Stdout, "test-go-workers2: ", log.Ldate|log.Lmicroseconds)
+
 	readyCh := make(chan bool)
 	msgCh := make(chan *Msg)
 	ackCh := make(chan *Msg)
@@ -160,7 +168,7 @@ func TestWorkerProcessesAndAcksMessages(t *testing.T) {
 	}
 
 	cc := newCallCounter()
-	w := newWorker(Logger, "q", 1, cc.F)
+	w := newWorker(testLogger, "q", 1, cc.F)
 
 	var wg sync.WaitGroup
 
