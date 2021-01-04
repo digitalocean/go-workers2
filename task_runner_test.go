@@ -2,6 +2,8 @@ package workers
 
 import (
 	"errors"
+	"log"
+	"os"
 	"sync"
 	"testing"
 
@@ -9,10 +11,12 @@ import (
 )
 
 func TestTaskRunner_process(t *testing.T) {
+	testLogger := log.New(os.Stdout, "test-go-workers2: ", log.Ldate|log.Lmicroseconds)
+
 	msg, _ := NewMsg(`{}`)
 
 	t.Run("handles-panic", func(t *testing.T) {
-		tr := newTaskRunner(Logger, func(m *Msg) error {
+		tr := newTaskRunner(testLogger, func(m *Msg) error {
 			panic("task-test-panic")
 		})
 		err := tr.process(msg)
@@ -22,7 +26,7 @@ func TestTaskRunner_process(t *testing.T) {
 
 	t.Run("returns-error", func(t *testing.T) {
 		var errorToRet error
-		tr := newTaskRunner(Logger, func(m *Msg) error {
+		tr := newTaskRunner(testLogger, func(m *Msg) error {
 			return errorToRet
 		})
 		err := tr.process(msg)
