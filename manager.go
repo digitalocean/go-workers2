@@ -253,43 +253,13 @@ func getRetryJSON(retryJobs []string) ([]RetryJobStats, error) {
 			return nil, err
 		}
 
-		class, err := retryJob.Get("class").String()
-		if err != nil {
-			return nil, err
-		}
-
-		errorMsg, err := retryJob.Get("error_message").String()
-		if err != nil {
-			return nil, err
-		}
-
-		failedAt, err := retryJob.Get("failed_at").String()
-		if err != nil {
-			return nil, err
-		}
-
-		jobID, err := retryJob.Get("jid").String()
-		if err != nil {
-			return nil, err
-		}
-
-		queue, err := retryJob.Get("queue").String()
-		if err != nil {
-			return nil, err
-		}
-
-		retryCount, err := retryJob.Get("retry_count").Int64()
-		if err != nil {
-			return nil, err
-		}
-
 		retryJobStats = append(retryJobStats, RetryJobStats{
-			Class:        class,
-			ErrorMessage: errorMsg,
-			FailedAt:     failedAt,
-			JobID:        jobID,
-			Queue:        queue,
-			RetryCount:   retryCount,
+			Class:        retryJob.Get("class").MustString(),
+			ErrorMessage: retryJob.Get("error_message").MustString(),
+			FailedAt:     retryJob.Get("failed_at").MustString(),
+			JobID:        retryJob.Get("jid").MustString(),
+			Queue:        retryJob.Get("queue").MustString(),
+			RetryCount:   retryJob.Get("retry_count").MustInt64(),
 		})
 	}
 
