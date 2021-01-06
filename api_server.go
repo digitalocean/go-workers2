@@ -25,6 +25,9 @@ type apiServer struct {
 func (s *apiServer) registerManager(m *Manager) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	if s.managers == nil {
+		s.managers = make(map[string]*Manager)
+	}
 	s.managers[m.uuid] = m
 }
 
