@@ -27,3 +27,8 @@ vendor-upgrade:
 	go get -u -d all
 	go mod vendor
 	go mod tidy
+
+# cmd
+.PHONY: build-cmd
+build-cmd:
+	go build -o ./target/gw2ctl github.com/digitalocean/go-workers2/cmd/gwctl
