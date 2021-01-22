@@ -144,23 +144,19 @@ func (r *redisStore) EnqueueMessageNow(ctx context.Context, queue string, messag
 
 func (r *redisStore) GetAllRetries(ctx context.Context) (*Retries, error) {
 	pipe := r.client.Pipeline()
-	retries := &Retries{}
+
 	retryCountGet := pipe.ZCard(ctx, r.namespace+RetryKey)
-	retryJobsGet, err := r.client.ZRange(ctx, r.namespace+RetryKey, 0, -1).Result()
-	if err != nil {
-		return nil, err
-	}
+	retryJobsGet := pipe.ZRange(ctx, r.namespace+RetryKey, 0, -1)
 
-	_, err = pipe.Exec(ctx)
-
+	_, err := pipe.Exec(ctx)
 	if err != nil && err != redis.Nil {
 		return nil, err
 	}
 
-	retries.RetryJobs = retryJobsGet
-	retries.TotalRetryCount = retryCountGet.Val()
-
-	return retries, nil
+	return &Retries{
+		RetryJobs:       retryJobsGet.Val(),
+		TotalRetryCount: retryCountGet.Val(),
+	}, nil
 }
 
 func (r *redisStore) GetAllStats(ctx context.Context, queues []string) (*Stats, error) {
@@ -176,7 +172,6 @@ func (r *redisStore) GetAllStats(ctx context.Context, queues []string) (*Stats, 
 	}
 
 	_, err := pipe.Exec(ctx)
-
 	if err != nil && err != redis.Nil {
 		return nil, err
 	}
