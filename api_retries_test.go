@@ -2,6 +2,7 @@ package workers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http/httptest"
@@ -26,6 +27,7 @@ func TestRetries_NotEmpty(t *testing.T) {
 		logger: log.New(os.Stdout, "go-workers2: ", log.Ldate|log.Lmicroseconds),
 	}
 
+	// test API replies without registered workers
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest("GET", "/retries", nil)
 	a.Retries(recorder, request)
@@ -33,6 +35,23 @@ func TestRetries_NotEmpty(t *testing.T) {
 	assert.Equal(t, "[]\n", recorder.Body.String())
 
 	ctx := context.Background()
+
+	// test API replies with registered workers
+	opts, err := setupTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	mgr := &Manager{opts: opts}
+	a.registerManager(mgr)
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest("GET", "/retries", nil)
+	a.Retries(recorder, request)
+
+	actualWithManagerBytes := recorder.Body.Bytes()
+	actualReplyParsed := []*Retries{}
+	err = json.Unmarshal(actualWithManagerBytes, &actualReplyParsed)
+	assert.NoError(t, err)
+	assert.Equal(t, []*Retries{{}}, actualReplyParsed)
 
 	//puts messages in retry queue when they fail
 	message, _ := NewMsg("{\"jid\":\"2\",\"retry\":true}")
@@ -52,24 +71,22 @@ func TestRetries_NotEmpty(t *testing.T) {
 			},
 		},
 	}
-	for _, tt := range tests {
-		opts, err := setupTestOptionsWithNamespace("prod")
-		assert.NoError(t, err)
 
-		mgr := &Manager{opts: opts}
-
-		a.registerManager(mgr)
-
+	ctx = context.Background()
+	for index, test := range tests {
 		// Test panic
-		wares.build("myqueue", mgr, tt.f)(message)
+		wares.build("myqueue", mgr, test.f)(message)
 
-		retries, _ := opts.client.ZRange(ctx, retryQueue(opts.Namespace), 0, 1).Result()
-		assert.Len(t, retries, 1)
-		assert.Equal(t, message.ToJson(), retries[0])
+		retries, err := opts.client.ZRange(ctx, retryQueue(opts.Namespace), 0, -1).Result()
+		assert.NoError(t, err)
+		assert.Len(t, retries, index+1)
+		assert.Equal(t, message.ToJson(), retries[index])
 	}
 
 	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest("GET", "/retries", nil)
 	a.Retries(recorder, request)
-
+	assert.NoError(t, err)
 	assert.NotEqual(t, "[]\n", recorder.Body.String())
+	assert.NotEqual(t, string(actualWithManagerBytes), recorder.Body.String())
 }
