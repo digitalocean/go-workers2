@@ -33,18 +33,8 @@ func (s *apiServer) Retries(w http.ResponseWriter, req *http.Request) {
 
 // Retries stores retry information
 type Retries struct {
-	TotalRetryCount int64           `json:"total_retry_count"`
-	RetryJobs       []RetryJobStats `json:"retry_jobs"`
-}
-
-// RetryJobStats stores information about a single retry job
-type RetryJobStats struct {
-	Class        string `json:"class"`
-	ErrorMessage string `json:"error_message"`
-	FailedAt     string `json:"failed_at"`
-	JobID        string `json:"jid"`
-	Queue        string `json:"queue"`
-	RetryCount   int64  `json:"retry_count"`
+	TotalRetryCount int64  `json:"total_retry_count"`
+	RetryJobs       []*Msg `json:"retry_jobs"`
 }
 
 func parseURLQuery(req *http.Request) (uint64, int64, string, error) {

@@ -233,35 +233,19 @@ func (m *Manager) GetRetries(page uint64, pageSize int64, match string) (Retries
 		return Retries{}, err
 	}
 
-	retryJobs, err := getRetryJSON(storeRetries.RetryJobs)
-	if err != nil {
-		return Retries{}, err
+	var retryJobs []*Msg
+	for _, r := range storeRetries.RetryJobs {
+		// parse json from string of retry data
+		retryJob, err := NewMsg(r)
+		if err != nil {
+			return Retries{}, err
+		}
+
+		retryJobs = append(retryJobs, retryJob)
 	}
 
 	return Retries{
 		TotalRetryCount: storeRetries.TotalRetryCount,
 		RetryJobs:       retryJobs,
 	}, nil
-}
-
-func getRetryJSON(retryJobs []string) ([]RetryJobStats, error) {
-	var retryJobStats []RetryJobStats
-	for _, r := range retryJobs {
-		// parse json from string of retry data
-		retryJob, err := NewMsg(r)
-		if err != nil {
-			return nil, err
-		}
-
-		retryJobStats = append(retryJobStats, RetryJobStats{
-			Class:        retryJob.Get("class").MustString(),
-			ErrorMessage: retryJob.Get("error_message").MustString(),
-			FailedAt:     retryJob.Get("failed_at").MustString(),
-			JobID:        retryJob.Get("jid").MustString(),
-			Queue:        retryJob.Get("queue").MustString(),
-			RetryCount:   retryJob.Get("retry_count").MustInt64(),
-		})
-	}
-
-	return retryJobStats, nil
 }
