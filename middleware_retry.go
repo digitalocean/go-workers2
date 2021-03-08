@@ -81,9 +81,8 @@ func retry(message *Msg) bool {
 
 	if param, err := message.Get("retry").Bool(); err == nil {
 		retry = param
-	} else if _, err := message.Get("retry").Int(); err == nil {
-		retry = true
 	}
+
 	return retry
 }
 
@@ -94,8 +93,8 @@ func retryCount(message *Msg) int {
 
 func retryMax(message *Msg) int {
 	max := DefaultRetryMax
-	if param, err := message.Get("retry").Int(); err == nil {
-		max = param
+	if messageRetryMax, err := message.Get("retry_max").Int(); err == nil && messageRetryMax >= 0 {
+		max = messageRetryMax
 	}
 	return max
 }

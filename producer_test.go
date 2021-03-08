@@ -73,7 +73,7 @@ func TestProducer_Enqueue(t *testing.T) {
 	assert.InDelta(t, nowToSecondsWithNanoPrecision(), ea, 0.1)
 
 	// has retry and retry_count when set
-	p.EnqueueWithOptions("enqueue6", "Compare", []string{"foo", "bar"}, EnqueueOptions{RetryCount: 13, Retry: true})
+	p.EnqueueWithOptions("enqueue6", "Compare", []string{"foo", "bar"}, EnqueueOptions{RetryCount: 10, Retry: true, RetryMax: 21})
 
 	bytes, _ = rc.LPop(ctx, "prod:queue:enqueue6").Result()
 	err = json.Unmarshal([]byte(bytes), &result)
@@ -84,7 +84,10 @@ func TestProducer_Enqueue(t *testing.T) {
 	assert.True(t, retry)
 
 	retryCount := int(result["retry_count"].(float64))
-	assert.Equal(t, 13, retryCount)
+	assert.Equal(t, 10, retryCount)
+
+	retryMax := int(result["retry_max"].(float64))
+	assert.Equal(t, 21, retryMax)
 }
 
 func TestProducer_EnqueueIn(t *testing.T) {
