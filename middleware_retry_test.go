@@ -96,7 +96,7 @@ func TestNumericRetries(t *testing.T) {
 
 	mgr := &Manager{opts: opts}
 
-	message, _ := NewMsg("{\"jid\":\"2\",\"retry\":5}")
+	message, _ := NewMsg("{\"jid\":\"2\",\"retry\":true}")
 
 	wares.build("myqueue", mgr, panickingFunc)(message)
 
@@ -176,7 +176,7 @@ func TestRecurringFailedMessagesWithMax(t *testing.T) {
 
 	layout := "2006-01-02 15:04:05 MST"
 
-	message, _ := NewMsg("{\"jid\":\"2\",\"retry\":10,\"queue\":\"default\",\"error_message\":\"bam\",\"failed_at\":\"2013-07-20 14:03:42 UTC\",\"retry_count\":8}")
+	message, _ := NewMsg("{\"jid\":\"2\",\"retry\":true,\"queue\":\"default\",\"error_message\":\"bam\",\"failed_at\":\"2013-07-20 14:03:42 UTC\",\"retry_count\":8}")
 
 	wares.build("prod:myqueue", mgr, panickingFunc)(message)
 
@@ -249,7 +249,7 @@ func TestRetryOnlyToCustomMax(t *testing.T) {
 
 	mgr := &Manager{opts: opts}
 
-	message, _ := NewMsg("{\"jid\":\"2\",\"retry\":3,\"retry_count\":3}")
+	message, _ := NewMsg("{\"jid\":\"2\",\"max_retry\":3,\"retry_count\":3}")
 
 	wares.build("prod:myqueue", mgr, panickingFunc)(message)
 
