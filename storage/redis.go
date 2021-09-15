@@ -49,6 +49,25 @@ func (r *redisStore) DequeueMessage(ctx context.Context, queue string, inprogres
 	return message, nil
 }
 
+func (r *redisStore) SendHeartbeat(ctx context.Context, hostnameKey string, heartbeat *Heartbeat) error {
+
+	// Set some fields.
+		if _, err := rdb.Pipelined(ctx, func(rdb redis.Pipeliner) error {
+			rdb.HSet(ctx, hostnameKey, "beat", heartbeat.Beat)
+			rdb.HSet(ctx, hostnameKey, "quiet", heartbeat.Quiet)
+			rdb.HSet(ctx, hostnameKey, "busy", heartbeat.Busy)
+			rdb.HSet(ctx, hostnameKey, "rtt_us", heartbeat.RttUS)
+			rdb.HSet(ctx, hostnameKey, "rss", heartbeat.RSS)
+			rdb.HSet(ctx, hostnameKey, "info", heartbeat.Info)
+			rdb.TTL(ctx, hostnameKey, 60) // set the TTL to 60
+			rdb.SAdd(ctx, r.namespace + ":processes", hostnameKey) // TODO: add the namespace
+			return nil
+		}); err != nil {
+			panic(err)
+		}
+
+}
+
 func (r *redisStore) EnqueueMessage(ctx context.Context, queue string, priority float64, message string) error {
 	_, err := r.client.ZAdd(ctx, r.getQueueName(queue), &redis.Z{
 		Score:  priority,
