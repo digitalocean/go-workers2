@@ -57,6 +57,11 @@ type Store interface {
 	IncrementStats(ctx context.Context, metric string) error
 	GetAllStats(ctx context.Context, queues []string) (*Stats, error)
 
+	// Heartbeat
+	// SendHeartbeat(ctx context.Context, hostnameKey string, heartbeat *Heartbeat) error
+
+	SendHeartbeat(ctx context.Context, hostnameKey string, beat time.Time, quiet bool, busy int, rttUs int, rss int, info string) error
+
 	// Retries
 	GetAllRetries(ctx context.Context) (*Retries, error)
 }

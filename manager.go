@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
@@ -20,6 +21,7 @@ type Manager struct {
 	signal   chan os.Signal
 	running  bool
 	logger   *log.Logger
+	startedAt time.Time
 
 	beforeStartHooks []func()
 	duringDrainHooks []func()
@@ -104,6 +106,8 @@ func (m *Manager) AddRetriesExhaustedHandlers(handlers ...RetriesExhaustedFunc) 
 
 // Run starts all workers under this Manager and blocks until they exit.
 func (m *Manager) Run() {
+	m.startedAt = time.Now()
+
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	if m.running {
@@ -181,6 +185,16 @@ func (m *Manager) inProgressMessages() map[string][]*Msg {
 // Producer creates a new work producer with configuration identical to the manager
 func (m *Manager) Producer() *Producer {
 	return &Producer{opts: m.opts}
+}
+
+func (m *Manager) SendHeartbeat() error {
+	heartbeat := BuildHeartbeat(m)
+
+	// SendHeartbeat(ctx context.Context, hostnameKey string, beat time.Time, quiet bool, busy int, rttUs int, rss int, info string) error
+
+	err := m.opts.store.SendHeartbeat(context.Background(), "somestring", heartbeat.Beat, heartbeat.Quiet, heartbeat.Busy, heartbeat.RttUS, heartbeat.RSS, heartbeat.Info)
+
+	return err
 }
 
 // GetStats returns the set of stats for the manager

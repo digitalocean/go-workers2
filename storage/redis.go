@@ -49,24 +49,53 @@ func (r *redisStore) DequeueMessage(ctx context.Context, queue string, inprogres
 	return message, nil
 }
 
-func (r *redisStore) SendHeartbeat(ctx context.Context, hostnameKey string, heartbeat *Heartbeat) error {
+func (r *redisStore) SendHeartbeat(ctx context.Context, hostnameKey string, beat time.Time, quiet bool, busy int, rttUs int, rss int, info string) error {
 
-	// Set some fields.
-		if _, err := rdb.Pipelined(ctx, func(rdb redis.Pipeliner) error {
-			rdb.HSet(ctx, hostnameKey, "beat", heartbeat.Beat)
-			rdb.HSet(ctx, hostnameKey, "quiet", heartbeat.Quiet)
-			rdb.HSet(ctx, hostnameKey, "busy", heartbeat.Busy)
-			rdb.HSet(ctx, hostnameKey, "rtt_us", heartbeat.RttUS)
-			rdb.HSet(ctx, hostnameKey, "rss", heartbeat.RSS)
-			rdb.HSet(ctx, hostnameKey, "info", heartbeat.Info)
-			rdb.TTL(ctx, hostnameKey, 60) // set the TTL to 60
-			rdb.SAdd(ctx, r.namespace + ":processes", hostnameKey) // TODO: add the namespace
-			return nil
-		}); err != nil {
-			panic(err)
-		}
+	key := r.namespace + hostnameKey
 
+	r.client.HSet(ctx, key, "beat", beat.UTC().Unix())
+	r.client.HSet(ctx, key, "quiet", quiet)
+	r.client.HSet(ctx, key, "busy", busy)
+	r.client.HSet(ctx, key, "rtt_us", rttUs)
+	r.client.HSet(ctx, key, "rss", rss)
+	r.client.HSet(ctx, key, "info", info) // TODO serialize the json
+	r.client.Expire(ctx, key, 60 * time.Second) // set the TTL of the heartbeat to 60
+
+	// oddly you don't need the : here, it's added automatically
+	setName := r.namespace + "processes"
+
+	r.client.SAdd(ctx, setName, hostnameKey) // add to the processes without the namespace
+
+	return nil
 }
+
+// func (r *redisStore) SendHeartbeat(ctx context.Context, hostnameKey string, heartbeat *workers.Heartbeat) error {
+
+// 	r.client.HSet(ctx, hostnameKey, "beat", heartbeat.Beat)
+// 	r.client.HSet(ctx, hostnameKey, "quiet", heartbeat.Quiet)
+// 	r.client.HSet(ctx, hostnameKey, "busy", heartbeat.Busy)
+// 	r.client.HSet(ctx, hostnameKey, "rtt_us", heartbeat.RttUS)
+// 	r.client.HSet(ctx, hostnameKey, "rss", heartbeat.RSS)
+// 	r.client.HSet(ctx, hostnameKey, "info", heartbeat.Info) // TODO serialize the json
+// 	r.client.Expire(ctx, hostnameKey, 60 * time.Second) // set the TTL of the heartbeat to 60
+// 	r.client.SAdd(ctx, r.namespace + ":processes", hostnameKey) // add to the namespace
+
+// 	return nil
+// 	// // Set some fields.
+// 	// 	if _, err := r.client.Pipelined(ctx, func(r.client redis.Pipeliner) error {
+// 	// 		r.client.HSet(ctx, hostnameKey, "beat", heartbeat.Beat)
+// 	// 		r.client.HSet(ctx, hostnameKey, "quiet", heartbeat.Quiet)
+// 	// 		r.client.HSet(ctx, hostnameKey, "busy", heartbeat.Busy)
+// 	// 		r.client.HSet(ctx, hostnameKey, "rtt_us", heartbeat.RttUS)
+// 	// 		r.client.HSet(ctx, hostnameKey, "rss", heartbeat.RSS)
+// 	// 		r.client.HSet(ctx, hostnameKey, "info", heartbeat.Info) // TODO serialize the json
+// 	// 		r.client.TTL(ctx, hostnameKey, 60) // set the TTL of the heartbeat to 60
+// 	// 		r.client.SAdd(ctx, r.namespace + ":processes", hostnameKey) // add to the namespace
+// 	// 		return nil
+// 	// 	}); err != nil {
+// 	// 		panic(err)
+// 	// 	}
+// }
 
 func (r *redisStore) EnqueueMessage(ctx context.Context, queue string, priority float64, message string) error {
 	_, err := r.client.ZAdd(ctx, r.getQueueName(queue), &redis.Z{

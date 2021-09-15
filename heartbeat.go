@@ -1,30 +1,15 @@
 package workers
 
 import (
-	"fmt"
 	"time"
+	"encoding/json"
+	"log"
+	"os"
 )
-
-func startHeartbeat() {
-	heartbeatTicker := time.NewTicker(5 * time.Second)
-
-	for {
-	    select {
-	    case <-heartbeatTicker.C:
-	    	sendHeartbeat()
-	    }
-	}
-}
-
-type Heartbeat struct {
-
-}
-
-// 12) "{\"hostname\":\"19883-JBolliger\",\"started_at\":1631662759.862796,\"pid\":44179,\"tag\":\"kirby\",\"concurrency\":10,\"queues\":[\"default\"],\"labels\":[],\"identity\":\"19883-JBolliger:44179:72231e7bea4f\"}"
 
 type HeartbeatInfo struct {
 	Hostname string 			`json:"hostname"`
-	StartedAt time.time   `json:"started_at"`
+	StartedAt int64   		`json:"started_at"`
 	Pid int 							`json:"pid"`
 	Tag string 						`json:"tag"`
 	Concurrency int 			`json:"concurrency"`
@@ -42,45 +27,65 @@ type Heartbeat struct {
 	Info string
 }
 
-func sendHeartbeat() {
-	// encoded json
-	//
-	// conn.hmget(key, "info", "busy", "beat", "quiet", "rss", "rtt_us")
-	// {\"hostname\":\"19883-JBolliger\",\"started_at\":1631662759.862796,\"pid\":44179,\"tag\":\"kirby\",\"concurrency\":10,\"queues\":[\"default\"],\"labels\":[],\"identity\":\"19883-JBolliger:44179:72231e7bea4f\"}
-	//
+func (s *apiServer) StartHeartbeat() {
+	heartbeatTicker := time.NewTicker(5 * time.Second)
+	for {
+	    select {
+	    case <-heartbeatTicker.C:
+	    	for _, m := range s.managers {
+	    		log.Println("sending heartbeat")
+	    		m.SendHeartbeat()
+	    	}
+	    }
+	}
+}
 
-
-	//  1) "beat"
-	//  2) "1631664057.681488"
-	//  3) "quiet"
-	//  4) "false"
-	//  5) "busy"
-	//  6) "0"
-	//  7) "rtt_us"
-	//  8) "184"
-	//  9) "rss"
-	// 10) "0"
-	// 11) "info"
-	// 12) "{\"hostname\":\"19883-JBolliger\",\"started_at\":1631662759.862796,\"pid\":44179,\"tag\":\"kirby\",\"concurrency\":10,\"queues\":[\"default\"],\"labels\":[],\"identity\":\"19883-JBolliger:44179:72231e7bea4f\"}"
+func BuildHeartbeat(m *Manager) *Heartbeat {
+	queues := []string{}
+	concurrency := 0
+	busy := 0
+	for _, w := range m.workers {
+		queues = append(queues, w.queue)
+		concurrency += w.concurrency // add up all concurrency here because it can be specified on a per-worker basis.
+	}
 
 	h1 := &HeartbeatInfo{
-      Hostname:   "john.bolliger-1-go",
-      StartedAt: time.Unix(1631662759),
-      Pid: 44179,
-      Tag: "kirby",
-      Concurrency: 5,
-      Queues: []string{"default","myqueue1","myqueue2"},
-      Labels: []string{},
-      Identity: "john.bolliger-1-go:44179:somehash",
-  h1m, _ := json.Marshal(h1)
+	  Hostname:   "john.bolliger-1-go",
+	  StartedAt: m.startedAt.UTC().Unix(),
+	  Pid: os.Getpid(),
+	  Tag: "sometag",
+	  Concurrency: concurrency,
+	  Queues: queues,
+	  Labels: []string{},
+	  Identity: "john.bolliger-1-go:44179:somehash",
+	}
+	h1m, _ := json.Marshal(h1)
 
-  beat := fmt.Sprintf("%d",time.Now().Unix())
-  startedAt := "1631662759.862796"
-  quiet := false
-  busy := 1
-  rtt_us := 100 // note
-  rss := -1
-  info := h1m
+	// inProgress := m.inProgressMessages()
+	// ns := m.opts.Namespace
+
+	// for queue, msgs := range inProgress {
+	// 	var jobs []JobStatus
+	// 	for _, m := range msgs {
+	// 		jobs = append(jobs, JobStatus{
+	// 			Message:   m,
+	// 			StartedAt: m.startedAt,
+	// 		})
+	// 	}
+	// 	stats.Jobs[ns+queue] = jobs
+	// 	q = append(q, queue)
+	// }
 
 
+	h := &Heartbeat{
+		Beat: time.Now(),
+		Quiet: false,
+		Busy: busy,
+		RttUS: -1,
+		RSS: -1,
+		Info: string(h1m),
+	}
+
+	return h
 }
+
