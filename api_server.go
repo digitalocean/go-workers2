@@ -74,7 +74,6 @@ func StartAPIServer(port int) {
 	}
 }
 
-
 // StopAPIServer stops the API server
 func StopAPIServer() {
 	if globalHTTPServer != nil {

@@ -13,15 +13,16 @@ import (
 
 // Manager coordinates work, workers, and signaling needed for job processing
 type Manager struct {
-	uuid     string
-	opts     Options
-	schedule *scheduledWorker
-	workers  []*worker
-	lock     sync.Mutex
-	signal   chan os.Signal
-	running  bool
-	logger   *log.Logger
+	uuid      string
+	opts      Options
+	schedule  *scheduledWorker
+	workers   []*worker
+	lock      sync.Mutex
+	signal    chan os.Signal
+	running   bool
+	logger    *log.Logger
 	startedAt time.Time
+	processNonce     string
 
 	beforeStartHooks []func()
 	duringDrainHooks []func()
@@ -36,10 +37,16 @@ func NewManager(options Options) (*Manager, error) {
 		return nil, err
 	}
 
+	processNonce, err := GenerateProcessNonce()
+	if err != nil {
+		return nil, err
+	}
+
 	return &Manager{
 		uuid:   uuid.New().String(),
 		logger: options.Logger,
 		opts:   options,
+		processNonce:  processNonce,
 	}, nil
 }
 
@@ -50,10 +57,16 @@ func NewManagerWithRedisClient(options Options, client *redis.Client) (*Manager,
 		return nil, err
 	}
 
+	processNonce, err := GenerateProcessNonce()
+	if err != nil {
+		return nil, err
+	}
+
 	return &Manager{
 		uuid:   uuid.New().String(),
 		logger: options.Logger,
 		opts:   options,
+		processNonce:  processNonce,
 	}, nil
 }
 
@@ -207,7 +220,7 @@ func (m *Manager) SendHeartbeat() error {
 
 	// SendHeartbeat(ctx context.Context, hostnameKey string, beat time.Time, quiet bool, busy int, rttUs int, rss int, info string) error
 
-	err := m.opts.store.SendHeartbeat(context.Background(), "somestring", heartbeat.Beat, heartbeat.Quiet, heartbeat.Busy, heartbeat.RttUS, heartbeat.RSS, heartbeat.Info)
+	err := m.opts.store.SendHeartbeat(context.Background(), heartbeat.Identity, heartbeat.Beat, heartbeat.Quiet, heartbeat.Busy, heartbeat.RttUS, heartbeat.RSS, heartbeat.Info)
 
 	return err
 }

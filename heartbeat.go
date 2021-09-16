@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 	"strings"
+	"time"
 )
 
 type HeartbeatInfo struct {
@@ -23,6 +23,8 @@ type HeartbeatInfo struct {
 }
 
 type Heartbeat struct {
+	Identity string
+
 	Beat  time.Time
 	Quiet bool
 	Busy  int
@@ -44,9 +46,8 @@ func (s *apiServer) StartHeartbeat() {
 	}
 }
 
-// generate the 12 char hex nonce
-func randomHex(n int) (string, error) {
-	bytes := make([]byte, n)
+func GenerateProcessNonce() (string, error) {
+	bytes := make([]byte, 12)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
 	}
@@ -77,9 +78,7 @@ func BuildHeartbeat(m *Manager) *Heartbeat {
 		tag = strings.ReplaceAll(m.opts.Namespace, ":", "")
 	}
 
-	processNonce, _ := randomHex(6)
-
-	identity := fmt.Sprintf("%s:%s:%s", hostname, string(pid), processNonce)
+	identity := fmt.Sprintf("%s:%s:%s", hostname, string(pid), m.processNonce)
 
 	h1 := &HeartbeatInfo{
 		Hostname:    hostname,
@@ -109,11 +108,12 @@ func BuildHeartbeat(m *Manager) *Heartbeat {
 	// }
 
 	h := &Heartbeat{
-		Beat:  time.Now(),
-		Quiet: false,
-		Busy:  busy,
-		RSS:   0, // rss is not currently supported
-		Info:  string(h1m),
+		Identity: identity,
+		Beat:     time.Now(),
+		Quiet:    false,
+		Busy:     busy,
+		RSS:      0, // rss is not currently supported
+		Info:     string(h1m),
 	}
 
 	return h
