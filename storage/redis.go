@@ -59,23 +59,26 @@ func (r* redisStore) CheckRtt(ctx context.Context) int64 {
 
 func (r *redisStore) SendHeartbeat(ctx context.Context, hostnameKey string, beat time.Time, quiet bool, busy int, rttUs int, rss int64, info string) error {
 
-	key := r.namespace + hostnameKey
-
+	pipe := r.client.Pipeline()
 	rtt := r.CheckRtt(ctx)
 
-	r.client.HSet(ctx, key, "beat", beat.UTC().Unix())
-	r.client.HSet(ctx, key, "quiet", quiet)
-	r.client.HSet(ctx, key, "busy", busy)
-	r.client.HSet(ctx, key, "rtt_us", rtt)
-	r.client.HSet(ctx, key, "rss", rss)
-	r.client.HSet(ctx, key, "info", info) // TODO serialize the json
-	r.client.Expire(ctx, key, 60 * time.Second) // set the TTL of the heartbeat to 60
-
+	key := r.namespace + hostnameKey
 	// oddly you don't need the : here, it's added automatically
 	setName := r.namespace + "processes"
 
-	r.client.SAdd(ctx, setName, hostnameKey) // add to the processes without the namespace
+	pipe.HSet(ctx, key, "beat", beat.UTC().Unix())
+	pipe.HSet(ctx, key, "quiet", quiet)
+	pipe.HSet(ctx, key, "busy", busy)
+	pipe.HSet(ctx, key, "rtt_us", rtt)
+	pipe.HSet(ctx, key, "rss", rss)
+	pipe.HSet(ctx, key, "info", info) // TODO serialize the json
+	pipe.Expire(ctx, key, 60 * time.Second) // set the TTL of the heartbeat to 60
+	pipe.SAdd(ctx, setName, hostnameKey) // add to the processes without the namespace
 
+	_, err := pipe.Exec(ctx)
+	if err != nil && err != redis.Nil {
+		return err
+	}
 	return nil
 }
 

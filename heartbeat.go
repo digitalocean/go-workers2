@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"time"
+	"strings"
 )
 
 type HeartbeatInfo struct {
@@ -73,7 +74,7 @@ func BuildHeartbeat(m *Manager) *Heartbeat {
 	tag := "default"
 
 	if m.opts.Namespace != "" {
-		tag = m.opts.Namespace
+		tag = strings.ReplaceAll(m.opts.Namespace, ":", "")
 	}
 
 	processNonce, _ := randomHex(6)
