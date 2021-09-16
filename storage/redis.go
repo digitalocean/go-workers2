@@ -49,14 +49,24 @@ func (r *redisStore) DequeueMessage(ctx context.Context, queue string, inprogres
 	return message, nil
 }
 
-func (r *redisStore) SendHeartbeat(ctx context.Context, hostnameKey string, beat time.Time, quiet bool, busy int, rttUs int, rss int, info string) error {
+func (r* redisStore) CheckRtt(ctx context.Context) int64 {
+	start := time.Now()
+	r.client.Ping(ctx)
+	ellapsed := time.Since(start)
+
+	return ellapsed.Microseconds()
+}
+
+func (r *redisStore) SendHeartbeat(ctx context.Context, hostnameKey string, beat time.Time, quiet bool, busy int, rttUs int, rss int64, info string) error {
 
 	key := r.namespace + hostnameKey
+
+	rtt := r.CheckRtt(ctx)
 
 	r.client.HSet(ctx, key, "beat", beat.UTC().Unix())
 	r.client.HSet(ctx, key, "quiet", quiet)
 	r.client.HSet(ctx, key, "busy", busy)
-	r.client.HSet(ctx, key, "rtt_us", rttUs)
+	r.client.HSet(ctx, key, "rtt_us", rtt)
 	r.client.HSet(ctx, key, "rss", rss)
 	r.client.HSet(ctx, key, "info", info) // TODO serialize the json
 	r.client.Expire(ctx, key, 60 * time.Second) // set the TTL of the heartbeat to 60

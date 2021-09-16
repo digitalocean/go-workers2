@@ -13,14 +13,15 @@ import (
 
 // Manager coordinates work, workers, and signaling needed for job processing
 type Manager struct {
-	uuid     string
-	opts     Options
-	schedule *scheduledWorker
-	workers  []*worker
-	lock     sync.Mutex
-	signal   chan os.Signal
-	running  bool
-	logger   *log.Logger
+	uuid      string
+	opts      Options
+	schedule  *scheduledWorker
+	workers   []*worker
+	lock      sync.Mutex
+	signal    chan os.Signal
+	running   bool
+	logger    *log.Logger
+	name      string
 	startedAt time.Time
 
 	beforeStartHooks []func()

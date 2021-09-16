@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 )
 
 type HeartbeatInfo struct {
@@ -23,7 +26,7 @@ type Heartbeat struct {
 	Quiet bool
 	Busy int
 	RttUS int
-	RSS int
+	RSS int64
 	Info string
 }
 
@@ -40,6 +43,15 @@ func (s *apiServer) StartHeartbeat() {
 	}
 }
 
+// generate the 12 char hex nonce
+func randomHex(n int) (string, error) {
+  bytes := make([]byte, n)
+  if _, err := rand.Read(bytes); err != nil {
+    return "", err
+  }
+  return hex.EncodeToString(bytes), nil
+}
+
 func BuildHeartbeat(m *Manager) *Heartbeat {
 	queues := []string{}
 	concurrency := 0
@@ -49,15 +61,34 @@ func BuildHeartbeat(m *Manager) *Heartbeat {
 		concurrency += w.concurrency // add up all concurrency here because it can be specified on a per-worker basis.
 	}
 
+	hostname, _ := os.Hostname()
+	pid := os.Getpid()
+
+	if m.opts.ManagerDisplayName != "" {
+		hostname = hostname + ":" + m.opts.ManagerDisplayName
+	}
+
+	// identity := m.opts.Namespace
+
+	tag := "default"
+
+	if m.opts.Namespace != "" {
+		tag = m.opts.Namespace
+	}
+
+	processNonce, _ := randomHex(6)
+
+	identity := fmt.Sprintf("%s:%s:%s", hostname, string(pid), processNonce)
+
 	h1 := &HeartbeatInfo{
-	  Hostname:   "john.bolliger-1-go",
-	  StartedAt: m.startedAt.UTC().Unix(),
-	  Pid: os.Getpid(),
-	  Tag: "sometag",
-	  Concurrency: concurrency,
-	  Queues: queues,
-	  Labels: []string{},
-	  Identity: "john.bolliger-1-go:44179:somehash",
+	  Hostname:  			hostname,
+	  StartedAt:			m.startedAt.UTC().Unix(),
+	  Pid: 						pid,
+	  Tag:					  tag,
+	  Concurrency: 		concurrency,
+	  Queues: 				queues,
+	  Labels: 				[]string{},
+	  Identity: 			identity,
 	}
 	h1m, _ := json.Marshal(h1)
 
@@ -81,8 +112,7 @@ func BuildHeartbeat(m *Manager) *Heartbeat {
 		Beat: time.Now(),
 		Quiet: false,
 		Busy: busy,
-		RttUS: -1,
-		RSS: -1,
+		RSS: 0, // rss is not currently supported
 		Info: string(h1m),
 	}
 

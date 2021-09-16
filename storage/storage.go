@@ -60,7 +60,7 @@ type Store interface {
 	// Heartbeat
 	// SendHeartbeat(ctx context.Context, hostnameKey string, heartbeat *Heartbeat) error
 
-	SendHeartbeat(ctx context.Context, hostnameKey string, beat time.Time, quiet bool, busy int, rttUs int, rss int, info string) error
+	SendHeartbeat(ctx context.Context, hostnameKey string, beat time.Time, quiet bool, busy int, rttUs int, rss int64, info string) error
 
 	// Retries
 	GetAllRetries(ctx context.Context) (*Retries, error)
