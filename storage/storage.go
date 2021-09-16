@@ -58,8 +58,6 @@ type Store interface {
 	GetAllStats(ctx context.Context, queues []string) (*Stats, error)
 
 	// Heartbeat
-	// SendHeartbeat(ctx context.Context, hostnameKey string, heartbeat *Heartbeat) error
-
 	SendHeartbeat(ctx context.Context, hostnameKey string, beat time.Time, quiet bool, busy int, rttUs int, rss int64, info string) error
 
 	// Retries

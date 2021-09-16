@@ -30,6 +30,8 @@ type Options struct {
 	// Optional display name used when displaying manager stats
 	ManagerDisplayName string
 
+	Heartbeat bool
+
 	// Log
 	Logger *log.Logger
 

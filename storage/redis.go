@@ -79,34 +79,6 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, hostnameKey string, beat
 	return nil
 }
 
-// func (r *redisStore) SendHeartbeat(ctx context.Context, hostnameKey string, heartbeat *workers.Heartbeat) error {
-
-// 	r.client.HSet(ctx, hostnameKey, "beat", heartbeat.Beat)
-// 	r.client.HSet(ctx, hostnameKey, "quiet", heartbeat.Quiet)
-// 	r.client.HSet(ctx, hostnameKey, "busy", heartbeat.Busy)
-// 	r.client.HSet(ctx, hostnameKey, "rtt_us", heartbeat.RttUS)
-// 	r.client.HSet(ctx, hostnameKey, "rss", heartbeat.RSS)
-// 	r.client.HSet(ctx, hostnameKey, "info", heartbeat.Info) // TODO serialize the json
-// 	r.client.Expire(ctx, hostnameKey, 60 * time.Second) // set the TTL of the heartbeat to 60
-// 	r.client.SAdd(ctx, r.namespace + ":processes", hostnameKey) // add to the namespace
-
-// 	return nil
-// 	// // Set some fields.
-// 	// 	if _, err := r.client.Pipelined(ctx, func(r.client redis.Pipeliner) error {
-// 	// 		r.client.HSet(ctx, hostnameKey, "beat", heartbeat.Beat)
-// 	// 		r.client.HSet(ctx, hostnameKey, "quiet", heartbeat.Quiet)
-// 	// 		r.client.HSet(ctx, hostnameKey, "busy", heartbeat.Busy)
-// 	// 		r.client.HSet(ctx, hostnameKey, "rtt_us", heartbeat.RttUS)
-// 	// 		r.client.HSet(ctx, hostnameKey, "rss", heartbeat.RSS)
-// 	// 		r.client.HSet(ctx, hostnameKey, "info", heartbeat.Info) // TODO serialize the json
-// 	// 		r.client.TTL(ctx, hostnameKey, 60) // set the TTL of the heartbeat to 60
-// 	// 		r.client.SAdd(ctx, r.namespace + ":processes", hostnameKey) // add to the namespace
-// 	// 		return nil
-// 	// 	}); err != nil {
-// 	// 		panic(err)
-// 	// 	}
-// }
-
 func (r *redisStore) EnqueueMessage(ctx context.Context, queue string, priority float64, message string) error {
 	_, err := r.client.ZAdd(ctx, r.getQueueName(queue), &redis.Z{
 		Score:  priority,

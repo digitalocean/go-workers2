@@ -13,15 +13,14 @@ import (
 
 // Manager coordinates work, workers, and signaling needed for job processing
 type Manager struct {
-	uuid      string
-	opts      Options
-	schedule  *scheduledWorker
-	workers   []*worker
-	lock      sync.Mutex
-	signal    chan os.Signal
-	running   bool
-	logger    *log.Logger
-	name      string
+	uuid     string
+	opts     Options
+	schedule *scheduledWorker
+	workers  []*worker
+	lock     sync.Mutex
+	signal   chan os.Signal
+	running  bool
+	logger   *log.Logger
 	startedAt time.Time
 
 	beforeStartHooks []func()
@@ -147,6 +146,10 @@ func (m *Manager) Run() {
 		wg.Done()
 	}()
 
+	if m.opts.Heartbeat {
+		go m.StartHeartbeat()
+	}
+
 	// Release the lock so that Stop can acquire it
 	m.lock.Unlock()
 	wg.Wait()
@@ -186,6 +189,17 @@ func (m *Manager) inProgressMessages() map[string][]*Msg {
 // Producer creates a new work producer with configuration identical to the manager
 func (m *Manager) Producer() *Producer {
 	return &Producer{opts: m.opts}
+}
+
+func (m *Manager) StartHeartbeat() error {
+	heartbeatTicker := time.NewTicker(5 * time.Second)
+	for {
+		select {
+		case <-heartbeatTicker.C:
+			log.Println("sending heartbeat")
+			m.SendHeartbeat()
+		}
+	}
 }
 
 func (m *Manager) SendHeartbeat() error {

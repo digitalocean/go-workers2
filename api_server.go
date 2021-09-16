@@ -74,9 +74,6 @@ func StartAPIServer(port int) {
 	}
 }
 
-func StartRedisHeartbeat(manager *Manager) {
-	go globalAPIServer.StartHeartbeat()
-}
 
 // StopAPIServer stops the API server
 func StopAPIServer() {
