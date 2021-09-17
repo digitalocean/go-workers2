@@ -126,17 +126,8 @@ func BuildHeartbeat(m *Manager) *Heartbeat {
 				workers[w.queue] = append(workers[w.queue], string(jsonWrapper))
 			}
 		}
-
 	}
 
-	// for _, messages := range m.inProgressMessages() {
-	// 	busy += len(messages)
-	// }
-
-	// for _, w := range m.workers {
-	// 	queues = append(queues, w.queue)
-	// 	concurrency += w.concurrency // add up all concurrency here because it can be specified on a per-worker basis.
-	// }
 
 	hostname, _ := os.Hostname()
 	pid := os.Getpid()
@@ -144,8 +135,6 @@ func BuildHeartbeat(m *Manager) *Heartbeat {
 	if m.opts.ManagerDisplayName != "" {
 		hostname = hostname + ":" + m.opts.ManagerDisplayName
 	}
-
-	// identity := m.opts.Namespace
 
 	tag := "default"
 
@@ -166,21 +155,6 @@ func BuildHeartbeat(m *Manager) *Heartbeat {
 		Identity:    identity,
 	}
 	h1m, _ := json.Marshal(h1)
-
-	// inProgress := m.inProgressMessages()
-	// ns := m.opts.Namespace
-
-	// for queue, msgs := range inProgress {
-	// 	var jobs []JobStatus
-	// 	for _, m := range msgs {
-	// 		jobs = append(jobs, JobStatus{
-	// 			Message:   m,
-	// 			StartedAt: m.startedAt,
-	// 		})
-	// 	}
-	// 	stats.Jobs[ns+queue] = jobs
-	// 	q = append(q, queue)
-	// }
 
 	h := &Heartbeat{
 		Identity: identity,
