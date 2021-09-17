@@ -31,6 +31,27 @@ type Heartbeat struct {
 	RttUS int
 	RSS   int64
 	Info  string
+
+	Workers map[string][]string
+}
+
+//  => {"retry"=>9, "queue"=>"sleeprb", "backtrace"=>true, "class"=>"SleepWorker", "args"=>[60], "jid"=>"348adede638ab7d4c2e547e7", "created_at"=>1631905645.1018732, "Trace-Context"=>{"uber-trace-id"=>"8e55bdaf3409cbbb:8e55bdaf3409cbbb:0:1"}, "enqueued_at"=>1631905645.1061718}
+
+type HeartbeatWorkerMsgWrapper struct {
+	Queue   string `json:"queue"`
+	Payload string `json:"payload"`
+	RunAt   int64  `json:"run_at"`
+}
+
+type HeartbeatWorkerMsg struct {
+	Retry      int      `json:"retry"`
+	Queue      string   `json:"queue"`
+	Backtrace  bool     `json:"backtrace"`
+	Class      string   `json:"class"`
+	Args       []string `json:"args"`
+	Jid        string   `json:"jid"`
+	CreatedAt  int64    `json:"created_at"`
+	EnqueuedAt int64    `json:"enqueued_at"`
 }
 
 func (s *apiServer) StartHeartbeat() {
@@ -55,13 +76,67 @@ func GenerateProcessNonce() (string, error) {
 }
 
 func BuildHeartbeat(m *Manager) *Heartbeat {
+
+	fmt.Println(m.inProgressMessages())
+
 	queues := []string{}
+	workers := map[string][]string{}
 	concurrency := 0
 	busy := 0
+
 	for _, w := range m.workers {
 		queues = append(queues, w.queue)
 		concurrency += w.concurrency // add up all concurrency here because it can be specified on a per-worker basis.
+		busy += len(w.inProgressMessages())
+
+		for _, msg := range w.inProgressMessages() {
+			fmt.Println("found msg", msg)
+			// found msg &{0xc00033a058 {"queue":"sleepgo","class":"Add","args":[10],"jid":"f4914398ea383d1a0611e884","enqueued_at":1631906124.4731379,"at":1631906124.473137} true 1631906139}
+
+			//  => {"retry"=>9, "queue"=>"sleeprb", "backtrace"=>true, "class"=>"SleepWorker", "args"=>[60], "jid"=>"348adede638ab7d4c2e547e7", "created_at"=>1631905645.1018732, "Trace-Context"=>{"uber-trace-id"=>"8e55bdaf3409cbbb:8e55bdaf3409cbbb:0:1"}, "enqueued_at"=>1631905645.1061718}
+
+			// 2) "{\"queue\":\"sleeprb\",\"payload\":\"{\\\"retry\\\":9,\\\"queue\\\":\\\"sleeprb\\\",\\\"backtrace\\\":true,\\\"class\\\":\\\"SleepWorker\\\",\\\"args\\\":[60],\\\"jid\\\":\\\"d722863bc0092f44d23f655e\\\",\\\"created_at\\\":1631910445.881293,\\\"Trace-Context\\\":{\\\"uber-trace-id\\\":\\\"8aa4890c1585e9f3:8aa4890c1585e9f3:0:1\\\"},\\\"enqueued_at\\\":1631910445.8897479}\",\"run_at\":1631910445}"
+
+			// 2) "{\"queue\":\"sleepgo\",\"payload\":\"{\\\"retry\\\":1,\\\"queue\\\":\\\"sleepgo\\\",\\\"backtrace\\\":false,\\\"class\\\":\\\"Add\\\",\\\"args\\\":[],\\\"jid\\\":\\\"0db564597153e031848c85d9\\\",\\\"created_at\\\":1631910751,\\\"enqueued_at\\\":1631910756,\\\"run_at\\\":1631910751}\"}"
+
+			workerMsg := &HeartbeatWorkerMsg{
+				Retry:      1,
+				Queue:      w.queue,
+				Backtrace:  false,
+				Class:      msg.Class(),
+				Args:       []string{},
+				Jid:        msg.Jid(),
+				CreatedAt:  msg.startedAt, // not actually started at
+				EnqueuedAt: time.Now().UTC().Unix(),
+			}
+			jsonMsg, _ := json.Marshal(workerMsg)
+
+			wrapper := &HeartbeatWorkerMsgWrapper{
+				Queue:   w.queue,
+				Payload: string(jsonMsg),
+				RunAt:   msg.startedAt,
+			}
+
+			jsonWrapper, _ := json.Marshal(wrapper)
+
+			if workers[w.queue] == nil {
+				workers[w.queue] = []string{string(jsonWrapper)}
+			}
+			if workers[w.queue] != nil {
+				workers[w.queue] = append(workers[w.queue], string(jsonWrapper))
+			}
+		}
+
 	}
+
+	// for _, messages := range m.inProgressMessages() {
+	// 	busy += len(messages)
+	// }
+
+	// for _, w := range m.workers {
+	// 	queues = append(queues, w.queue)
+	// 	concurrency += w.concurrency // add up all concurrency here because it can be specified on a per-worker basis.
+	// }
 
 	hostname, _ := os.Hostname()
 	pid := os.Getpid()
@@ -78,7 +153,7 @@ func BuildHeartbeat(m *Manager) *Heartbeat {
 		tag = strings.ReplaceAll(m.opts.Namespace, ":", "")
 	}
 
-	identity := fmt.Sprintf("%s:%s:%s", hostname, string(pid), m.processNonce)
+	identity := fmt.Sprintf("%s:%d:%s", hostname, pid, m.processNonce)
 
 	h1 := &HeartbeatInfo{
 		Hostname:    hostname,
@@ -114,6 +189,7 @@ func BuildHeartbeat(m *Manager) *Heartbeat {
 		Busy:     busy,
 		RSS:      0, // rss is not currently supported
 		Info:     string(h1m),
+		Workers:  workers,
 	}
 
 	return h
