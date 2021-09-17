@@ -31,6 +31,7 @@ type Heartbeat struct {
 	RttUS int
 	RSS   int64
 	Info  string
+	Pid   int
 
 	Workers map[string][]string
 }
@@ -121,8 +122,7 @@ func BuildHeartbeat(m *Manager) *Heartbeat {
 
 			if workers[w.queue] == nil {
 				workers[w.queue] = []string{string(jsonWrapper)}
-			}
-			if workers[w.queue] != nil {
+			} else {
 				workers[w.queue] = append(workers[w.queue], string(jsonWrapper))
 			}
 		}
@@ -189,6 +189,7 @@ func BuildHeartbeat(m *Manager) *Heartbeat {
 		Busy:     busy,
 		RSS:      0, // rss is not currently supported
 		Info:     string(h1m),
+		Pid:      pid,
 		Workers:  workers,
 	}
 

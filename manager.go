@@ -220,7 +220,7 @@ func (m *Manager) SendHeartbeat() error {
 
 	// SendHeartbeat(ctx context.Context, hostnameKey string, beat time.Time, quiet bool, busy int, rttUs int, rss int, info string) error
 
-	err := m.opts.store.SendHeartbeat(context.Background(), heartbeat.Identity, heartbeat.Beat, heartbeat.Quiet, heartbeat.Busy, heartbeat.RttUS, heartbeat.RSS, heartbeat.Info, heartbeat.Workers)
+	err := m.opts.store.SendHeartbeat(context.Background(), heartbeat.Identity, heartbeat.Beat, heartbeat.Quiet, heartbeat.Busy, heartbeat.RttUS, heartbeat.RSS, heartbeat.Info, heartbeat.Pid, heartbeat.Workers)
 
 	return err
 }

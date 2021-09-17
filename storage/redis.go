@@ -9,6 +9,8 @@ import (
 	"reflect"
 
 	"github.com/go-redis/redis/v8"
+
+	"math/rand"
 )
 
 type redisStore struct {
@@ -58,7 +60,7 @@ func (r* redisStore) CheckRtt(ctx context.Context) int64 {
 	return ellapsed.Microseconds()
 }
 
-func (r *redisStore) SendHeartbeat(ctx context.Context, identity string, beat time.Time, quiet bool, busy int, rttUs int, rss int64, info string, workers map[string][]string) error {
+func (r *redisStore) SendHeartbeat(ctx context.Context, identity string, beat time.Time, quiet bool, busy int, rttUs int, rss int64, info string, pid int, workers map[string][]string) error {
 
 	pipe := r.client.Pipeline()
 	rtt := r.CheckRtt(ctx)
@@ -96,21 +98,29 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, identity string, beat ti
 
 	// 2) "{\"queue\":\"sleeprb\",\"payload\":\"{\\\"retry\\\":9,\\\"queue\\\":\\\"sleeprb\\\",\\\"backtrace\\\":true,\\\"class\\\":\\\"SleepWorker\\\",\\\"args\\\":[60],\\\"jid\\\":\\\"d722863bc0092f44d23f655e\\\",\\\"created_at\\\":1631910445.881293,\\\"Trace-Context\\\":{\\\"uber-trace-id\\\":\\\"8aa4890c1585e9f3:8aa4890c1585e9f3:0:1\\\"},\\\"enqueued_at\\\":1631910445.8897479}\",\"run_at\":1631910445}"
 
+	pipe.Del(ctx, workersKey)
+
 	for queue, msgs := range workers {
 		fmt.Println("found msgs in queue:",queue, "msgs:", msgs)
 		fmt.Println(reflect.TypeOf(msgs), msgs)
 
 		for _, msg := range msgs {
 			fmt.Println("found msg", reflect.TypeOf(msg), msg)
-			pipe.HSet(ctx, workersKey, "go1", msg)
+
+			num := rand.Intn(1000)
+			fmt.Println(num)
+			fakeThreadId := fmt.Sprintf("go-%d-%d", pid, num)
+
+			pipe.HSet(ctx, workersKey, fakeThreadId, msg)
 		}
+
+		pipe.Expire(ctx, workersKey, 60 * time.Second)
 	}
 
 	// for _, worker := range workers {
 	// 	pipe.SAdd(ctx, workersKey, "go-no-thread-id", worker)
 	// }
 
-	pipe.Expire(ctx, workersKey, 60 * time.Second)
 
 	_, err = pipe.Exec(ctx)
 	if err != nil && err != redis.Nil {
