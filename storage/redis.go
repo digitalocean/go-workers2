@@ -6,11 +6,9 @@ import (
 	"log"
 	"strconv"
 	"time"
-	"reflect"
+	// "reflect"
 
 	"github.com/go-redis/redis/v8"
-
-	"math/rand"
 )
 
 type redisStore struct {
@@ -52,7 +50,7 @@ func (r *redisStore) DequeueMessage(ctx context.Context, queue string, inprogres
 	return message, nil
 }
 
-func (r* redisStore) CheckRtt(ctx context.Context) int64 {
+func (r *redisStore) CheckRtt(ctx context.Context) int64 {
 	start := time.Now()
 	r.client.Ping(ctx)
 	ellapsed := time.Since(start)
@@ -60,29 +58,25 @@ func (r* redisStore) CheckRtt(ctx context.Context) int64 {
 	return ellapsed.Microseconds()
 }
 
-func (r *redisStore) SendHeartbeat(ctx context.Context, identity string, beat time.Time, quiet bool, busy int, rttUs int, rss int64, info string, pid int, workers map[string][]string) error {
+// func (r *redisStore) SendHeartbeat(ctx context.Context, identity string, beat time.Time, quiet bool, busy int, rttUs int, rss int64, info string, pid int, workers map[string][]string) error {
+
+func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) error {
 
 	pipe := r.client.Pipeline()
 	rtt := r.CheckRtt(ctx)
 
-	maangerIdentity := r.namespace + identity
+	maangerIdentity := r.namespace + heartbeat.Identity
 	sidekiqProcessesKey := r.namespace + "processes"
 
-	pipe.SAdd(ctx, sidekiqProcessesKey, identity) // add to the sidekiq processes set without the namespace
+	pipe.SAdd(ctx, sidekiqProcessesKey, heartbeat.Identity) // add to the sidekiq processes set without the namespace
 
-	pipe.HSet(ctx, maangerIdentity, "beat", beat.UTC().Unix())
-	pipe.HSet(ctx, maangerIdentity, "quiet", quiet)
-	pipe.HSet(ctx, maangerIdentity, "busy", busy)
+	pipe.HSet(ctx, maangerIdentity, "beat", heartbeat.Beat.UTC().Unix())
+	pipe.HSet(ctx, maangerIdentity, "quiet", heartbeat.Quiet)
+	pipe.HSet(ctx, maangerIdentity, "busy", heartbeat.Busy)
 	pipe.HSet(ctx, maangerIdentity, "rtt_us", rtt)
-	pipe.HSet(ctx, maangerIdentity, "rss", rss)
-	pipe.HSet(ctx, maangerIdentity, "info", info)
-	pipe.Expire(ctx, maangerIdentity, 60 * time.Second) // set the TTL of the heartbeat to 60
-
-	_, err := pipe.Exec(ctx)
-	if err != nil && err != redis.Nil {
-		return err
-	}
-
+	pipe.HSet(ctx, maangerIdentity, "rss", heartbeat.RSS)
+	pipe.HSet(ctx, maangerIdentity, "info", heartbeat.Info)
+	pipe.Expire(ctx, maangerIdentity, 60*time.Second) // set the TTL of the heartbeat to 60
 
 	// workers
 	// found msg &{0xc00033a058 {"queue":"sleepgo","class":"Add","args":[10],"jid":"f4914398ea383d1a0611e884","enqueued_at":1631906124.4731379,"at":1631906124.473137} true 1631906139}
@@ -91,42 +85,41 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, identity string, beat ti
 
 	workersKey := maangerIdentity + ":workers"
 
-	pipe = r.client.Pipeline()
+	// pipe = r.client.Pipeline()
 
 	// 2) "{\"retry\":1,\"queue\":\"sleepgo\",\"backtrace\":false,\"class\":\"Add\",\"args\":[],\"jid\":\"0bedcd4e6788342e9a2e26ef\",\"created_at\":1631910386,\"enqueued_at\":1631910391}"
-
 
 	// 2) "{\"queue\":\"sleeprb\",\"payload\":\"{\\\"retry\\\":9,\\\"queue\\\":\\\"sleeprb\\\",\\\"backtrace\\\":true,\\\"class\\\":\\\"SleepWorker\\\",\\\"args\\\":[60],\\\"jid\\\":\\\"d722863bc0092f44d23f655e\\\",\\\"created_at\\\":1631910445.881293,\\\"Trace-Context\\\":{\\\"uber-trace-id\\\":\\\"8aa4890c1585e9f3:8aa4890c1585e9f3:0:1\\\"},\\\"enqueued_at\\\":1631910445.8897479}\",\"run_at\":1631910445}"
 
 	pipe.Del(ctx, workersKey)
 
-	for queue, msgs := range workers {
-		fmt.Println("found msgs in queue:",queue, "msgs:", msgs)
-		fmt.Println(reflect.TypeOf(msgs), msgs)
-
-		for _, msg := range msgs {
-			fmt.Println("found msg", reflect.TypeOf(msg), msg)
-
-			num := rand.Intn(1000)
-			fmt.Println(num)
-			fakeThreadId := fmt.Sprintf("go-%d-%d", pid, num)
-
-			pipe.HSet(ctx, workersKey, fakeThreadId, msg)
-		}
-
-		pipe.Expire(ctx, workersKey, 60 * time.Second)
+	for tid, msg := range heartbeat.WorkerMessages {
+		// fake the sidekiq thread id
+		fakeThreadId := fmt.Sprintf("%d-%s", heartbeat.Pid, tid)
+		pipe.HSet(ctx, workersKey, fakeThreadId, msg)
 	}
 
-	// for _, worker := range workers {
-	// 	pipe.SAdd(ctx, workersKey, "go-no-thread-id", worker)
+	pipe.Expire(ctx, workersKey, 60*time.Second)
+
+	// for queue, msgs := range heartbeat.Workers {
+	// 	pipe.Del(ctx, workersKey)
+
+	// 	fmt.Println("found msgs in queue:",queue, "msgs:", msgs)
+
+	// 	for _, msg := range msgs {
+	// 		// fmt.Println("found msg", reflect.TypeOf(msg), msg)
+
+	// 		// fake the sidekiq thread id
+	// 		fakeThreadId := fmt.Sprintf("go(%d)-fakeTid(%d)", heartbeat.Pid, rand.Intn(1000000))
+	// 		pipe.HSet(ctx, workersKey, fakeThreadId, msg)
+	// 	}
+	// 	pipe.Expire(ctx, workersKey, 60 * time.Second)
 	// }
 
-
-	_, err = pipe.Exec(ctx)
+	_, err := pipe.Exec(ctx)
 	if err != nil && err != redis.Nil {
 		return err
 	}
-
 
 	return nil
 }

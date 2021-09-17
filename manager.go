@@ -218,9 +218,7 @@ func (m *Manager) StartHeartbeat() error {
 func (m *Manager) SendHeartbeat() error {
 	heartbeat := BuildHeartbeat(m)
 
-	// SendHeartbeat(ctx context.Context, hostnameKey string, beat time.Time, quiet bool, busy int, rttUs int, rss int, info string) error
-
-	err := m.opts.store.SendHeartbeat(context.Background(), heartbeat.Identity, heartbeat.Beat, heartbeat.Quiet, heartbeat.Busy, heartbeat.RttUS, heartbeat.RSS, heartbeat.Info, heartbeat.Pid, heartbeat.Workers)
+	err := m.opts.store.SendHeartbeat(context.Background(), heartbeat)
 
 	return err
 }

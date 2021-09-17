@@ -35,6 +35,21 @@ type Retries struct {
 	RetryJobs       []string
 }
 
+// Heartbeat is used for the ruby sidekiq web ui
+type Heartbeat struct {
+	Identity string
+
+	Beat  time.Time
+	Quiet bool
+	Busy  int
+	RttUS int
+	RSS   int64
+	Info  string
+	Pid   int
+
+	WorkerMessages map[string]string
+}
+
 // Store is the interface for storing and retrieving data
 type Store interface {
 
@@ -58,7 +73,7 @@ type Store interface {
 	GetAllStats(ctx context.Context, queues []string) (*Stats, error)
 
 	// Heartbeat
-	SendHeartbeat(ctx context.Context, identity string, beat time.Time, quiet bool, busy int, rttUs int, rss int64, info string, pid int, workers map[string][]string) error
+	SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) error
 
 	// Retries
 	GetAllRetries(ctx context.Context) (*Retries, error)
