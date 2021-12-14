@@ -22,8 +22,6 @@ type HeartbeatInfo struct {
 	Identity    string   `json:"identity"`
 }
 
-//  => {"retry"=>9, "queue"=>"sleeprb", "backtrace"=>true, "class"=>"SleepWorker", "args"=>[60], "jid"=>"348adede638ab7d4c2e547e7", "created_at"=>1631905645.1018732, "Trace-Context"=>{"uber-trace-id"=>"8e55bdaf3409cbbb:8e55bdaf3409cbbb:0:1"}, "enqueued_at"=>1631905645.1061718}
-
 type HeartbeatWorkerMsgWrapper struct {
 	Queue   string `json:"queue"`
 	Payload string `json:"payload"`
