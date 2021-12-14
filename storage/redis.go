@@ -6,7 +6,6 @@ import (
 	"log"
 	"strconv"
 	"time"
-	// "reflect"
 
 	"github.com/go-redis/redis/v8"
 )
@@ -65,25 +64,25 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 	pipe := r.client.Pipeline()
 	rtt := r.CheckRtt(ctx)
 
-	maangerIdentity := r.namespace + heartbeat.Identity
+	managerIdentity := r.namespace + heartbeat.Identity
 	sidekiqProcessesKey := r.namespace + "processes"
 
 	pipe.SAdd(ctx, sidekiqProcessesKey, heartbeat.Identity) // add to the sidekiq processes set without the namespace
 
-	pipe.HSet(ctx, maangerIdentity, "beat", heartbeat.Beat.UTC().Unix())
-	pipe.HSet(ctx, maangerIdentity, "quiet", heartbeat.Quiet)
-	pipe.HSet(ctx, maangerIdentity, "busy", heartbeat.Busy)
-	pipe.HSet(ctx, maangerIdentity, "rtt_us", rtt)
-	pipe.HSet(ctx, maangerIdentity, "rss", heartbeat.RSS)
-	pipe.HSet(ctx, maangerIdentity, "info", heartbeat.Info)
-	pipe.Expire(ctx, maangerIdentity, 60*time.Second) // set the TTL of the heartbeat to 60
+	pipe.HSet(ctx, managerIdentity, "beat", heartbeat.Beat.UTC().Unix())
+	pipe.HSet(ctx, managerIdentity, "quiet", heartbeat.Quiet)
+	pipe.HSet(ctx, managerIdentity, "busy", heartbeat.Busy)
+	pipe.HSet(ctx, managerIdentity, "rtt_us", rtt)
+	pipe.HSet(ctx, managerIdentity, "rss", heartbeat.RSS)
+	pipe.HSet(ctx, managerIdentity, "info", heartbeat.Info)
+	pipe.Expire(ctx, managerIdentity, 60*time.Second) // set the TTL of the heartbeat to 60
 
 	// workers
 	// found msg &{0xc00033a058 {"queue":"sleepgo","class":"Add","args":[10],"jid":"f4914398ea383d1a0611e884","enqueued_at":1631906124.4731379,"at":1631906124.473137} true 1631906139}
 
 	//  => {"retry"=>9, "queue"=>"sleeprb", "backtrace"=>true, "class"=>"SleepWorker", "args"=>[60], "jid"=>"348adede638ab7d4c2e547e7", "created_at"=>1631905645.1018732, "Trace-Context"=>{"uber-trace-id"=>"8e55bdaf3409cbbb:8e55bdaf3409cbbb:0:1"}, "enqueued_at"=>1631905645.1061718}
 
-	workersKey := maangerIdentity + ":workers"
+	workersKey := managerIdentity + ":workers"
 
 	// pipe = r.client.Pipeline()
 
@@ -115,6 +114,23 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 	// 	}
 	// 	pipe.Expire(ctx, workersKey, 60 * time.Second)
 	// }
+
+	_, err := pipe.Exec(ctx)
+	if err != nil && err != redis.Nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *redisStore) RemoveHeartbeat(ctx context.Context, heartbeat *Heartbeat) error {
+	managerIdentity := r.namespace + heartbeat.Identity
+
+	pipe := r.client.Pipeline()
+	pipe.Del(ctx, managerIdentity)
+
+	workersKey := managerIdentity + ":workers"
+	pipe.Del(ctx, workersKey)
 
 	_, err := pipe.Exec(ctx)
 	if err != nil && err != redis.Nil {

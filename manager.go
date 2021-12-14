@@ -23,6 +23,7 @@ type Manager struct {
 	logger       *log.Logger
 	startedAt    time.Time
 	processNonce string
+	heartbeatChannel chan bool
 
 	beforeStartHooks []func()
 	duringDrainHooks []func()
@@ -160,7 +161,7 @@ func (m *Manager) Run() {
 	}()
 
 	if m.opts.Heartbeat {
-		go m.StartHeartbeat()
+		go m.startHeartbeat()
 	}
 
 	// Release the lock so that Stop can acquire it
@@ -179,6 +180,7 @@ func (m *Manager) Stop() {
 	if !m.running {
 		return
 	}
+	m.removeHeartbeat()
 	for _, w := range m.workers {
 		w.quit()
 	}
@@ -202,25 +204,6 @@ func (m *Manager) inProgressMessages() map[string][]*Msg {
 // Producer creates a new work producer with configuration identical to the manager
 func (m *Manager) Producer() *Producer {
 	return &Producer{opts: m.opts}
-}
-
-func (m *Manager) StartHeartbeat() error {
-	heartbeatTicker := time.NewTicker(5 * time.Second)
-	for {
-		select {
-		case <-heartbeatTicker.C:
-			log.Println("sending heartbeat")
-			m.SendHeartbeat()
-		}
-	}
-}
-
-func (m *Manager) SendHeartbeat() error {
-	heartbeat := BuildHeartbeat(m)
-
-	err := m.opts.store.SendHeartbeat(context.Background(), heartbeat)
-
-	return err
 }
 
 // GetStats returns the set of stats for the manager
@@ -288,4 +271,36 @@ func (m *Manager) GetRetries(page uint64, pageSize int64, match string) (Retries
 		TotalRetryCount: storeRetries.TotalRetryCount,
 		RetryJobs:       retryJobs,
 	}, nil
+}
+
+func (m *Manager) startHeartbeat() error {
+	heartbeatTicker := time.NewTicker(5 * time.Second)
+	m.heartbeatChannel = make(chan bool, 1)
+
+	go func() {
+		for {
+			select {
+			case <- heartbeatTicker.C:
+				m.sendHeartbeat()
+			case <- m.heartbeatChannel:
+				return
+			}
+		}
+	}()
+	return nil
+}
+
+func (m *Manager) removeHeartbeat() error {
+	m.heartbeatChannel <- true
+	heartbeat := m.buildHeartbeat()
+	err := m.opts.store.RemoveHeartbeat(context.Background(), heartbeat)
+	return err
+}
+
+func (m *Manager) sendHeartbeat() error {
+	heartbeat := m.buildHeartbeat()
+
+	err := m.opts.store.SendHeartbeat(context.Background(), heartbeat)
+
+	return err
 }

@@ -74,6 +74,7 @@ type Store interface {
 
 	// Heartbeat
 	SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) error
+	RemoveHeartbeat(ctx context.Context, heartbeat *Heartbeat) error
 
 	// Retries
 	GetAllRetries(ctx context.Context) (*Retries, error)

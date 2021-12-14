@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	// "log"
 	"github.com/digitalocean/go-workers2/storage"
 	"os"
 	"strings"
@@ -51,10 +50,7 @@ func GenerateProcessNonce() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-func BuildHeartbeat(m *Manager) *storage.Heartbeat {
-
-	fmt.Println(m.inProgressMessages())
-
+func (m *Manager) buildHeartbeat() *storage.Heartbeat {
 	queues := []string{}
 
 	// tid -> wrapper(payload)
