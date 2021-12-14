@@ -57,8 +57,6 @@ func (r *redisStore) CheckRtt(ctx context.Context) int64 {
 	return ellapsed.Microseconds()
 }
 
-// func (r *redisStore) SendHeartbeat(ctx context.Context, identity string, beat time.Time, quiet bool, busy int, rttUs int, rss int64, info string, pid int, workers map[string][]string) error {
-
 func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) error {
 
 	pipe := r.client.Pipeline()
@@ -84,8 +82,6 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 
 	workersKey := managerIdentity + ":workers"
 
-	// pipe = r.client.Pipeline()
-
 	// 2) "{\"retry\":1,\"queue\":\"sleepgo\",\"backtrace\":false,\"class\":\"Add\",\"args\":[],\"jid\":\"0bedcd4e6788342e9a2e26ef\",\"created_at\":1631910386,\"enqueued_at\":1631910391}"
 
 	// 2) "{\"queue\":\"sleeprb\",\"payload\":\"{\\\"retry\\\":9,\\\"queue\\\":\\\"sleeprb\\\",\\\"backtrace\\\":true,\\\"class\\\":\\\"SleepWorker\\\",\\\"args\\\":[60],\\\"jid\\\":\\\"d722863bc0092f44d23f655e\\\",\\\"created_at\\\":1631910445.881293,\\\"Trace-Context\\\":{\\\"uber-trace-id\\\":\\\"8aa4890c1585e9f3:8aa4890c1585e9f3:0:1\\\"},\\\"enqueued_at\\\":1631910445.8897479}\",\"run_at\":1631910445}"
@@ -99,21 +95,6 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 	}
 
 	pipe.Expire(ctx, workersKey, 60*time.Second)
-
-	// for queue, msgs := range heartbeat.Workers {
-	// 	pipe.Del(ctx, workersKey)
-
-	// 	fmt.Println("found msgs in queue:",queue, "msgs:", msgs)
-
-	// 	for _, msg := range msgs {
-	// 		// fmt.Println("found msg", reflect.TypeOf(msg), msg)
-
-	// 		// fake the sidekiq thread id
-	// 		fakeThreadId := fmt.Sprintf("go(%d)-fakeTid(%d)", heartbeat.Pid, rand.Intn(1000000))
-	// 		pipe.HSet(ctx, workersKey, fakeThreadId, msg)
-	// 	}
-	// 	pipe.Expire(ctx, workersKey, 60 * time.Second)
-	// }
 
 	_, err := pipe.Exec(ctx)
 	if err != nil && err != redis.Nil {
