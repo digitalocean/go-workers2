@@ -13,16 +13,16 @@ import (
 
 // Manager coordinates work, workers, and signaling needed for job processing
 type Manager struct {
-	uuid         string
-	opts         Options
-	schedule     *scheduledWorker
-	workers      []*worker
-	lock         sync.Mutex
-	signal       chan os.Signal
-	running      bool
-	logger       *log.Logger
-	startedAt    time.Time
-	processNonce string
+	uuid             string
+	opts             Options
+	schedule         *scheduledWorker
+	workers          []*worker
+	lock             sync.Mutex
+	signal           chan os.Signal
+	running          bool
+	logger           *log.Logger
+	startedAt        time.Time
+	processNonce     string
 	heartbeatChannel chan bool
 
 	beforeStartHooks []func()
@@ -282,9 +282,9 @@ func (m *Manager) startHeartbeat() error {
 	go func() {
 		for {
 			select {
-			case <- heartbeatTicker.C:
+			case <-heartbeatTicker.C:
 				m.sendHeartbeat()
-			case <- m.heartbeatChannel:
+			case <-m.heartbeatChannel:
 				return
 			}
 		}

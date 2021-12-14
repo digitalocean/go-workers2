@@ -75,16 +75,7 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 	pipe.HSet(ctx, managerIdentity, "info", heartbeat.Info)
 	pipe.Expire(ctx, managerIdentity, 60*time.Second) // set the TTL of the heartbeat to 60
 
-	// workers
-	// found msg &{0xc00033a058 {"queue":"sleepgo","class":"Add","args":[10],"jid":"f4914398ea383d1a0611e884","enqueued_at":1631906124.4731379,"at":1631906124.473137} true 1631906139}
-
-	//  => {"retry"=>9, "queue"=>"sleeprb", "backtrace"=>true, "class"=>"SleepWorker", "args"=>[60], "jid"=>"348adede638ab7d4c2e547e7", "created_at"=>1631905645.1018732, "Trace-Context"=>{"uber-trace-id"=>"8e55bdaf3409cbbb:8e55bdaf3409cbbb:0:1"}, "enqueued_at"=>1631905645.1061718}
-
 	workersKey := managerIdentity + ":workers"
-
-	// 2) "{\"retry\":1,\"queue\":\"sleepgo\",\"backtrace\":false,\"class\":\"Add\",\"args\":[],\"jid\":\"0bedcd4e6788342e9a2e26ef\",\"created_at\":1631910386,\"enqueued_at\":1631910391}"
-
-	// 2) "{\"queue\":\"sleeprb\",\"payload\":\"{\\\"retry\\\":9,\\\"queue\\\":\\\"sleeprb\\\",\\\"backtrace\\\":true,\\\"class\\\":\\\"SleepWorker\\\",\\\"args\\\":[60],\\\"jid\\\":\\\"d722863bc0092f44d23f655e\\\",\\\"created_at\\\":1631910445.881293,\\\"Trace-Context\\\":{\\\"uber-trace-id\\\":\\\"8aa4890c1585e9f3:8aa4890c1585e9f3:0:1\\\"},\\\"enqueued_at\\\":1631910445.8897479}\",\"run_at\":1631910445}"
 
 	pipe.Del(ctx, workersKey)
 
