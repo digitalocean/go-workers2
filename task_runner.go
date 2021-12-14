@@ -21,7 +21,7 @@ func (w *taskRunner) quit() {
 	close(w.stop)
 }
 
-var letters = []rune("abcdefghijklmnopqrstuvwxyz1234567890")
+var alphaNumericRunes = []rune("abcdefghijklmnopqrstuvwxyz1234567890")
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
@@ -30,7 +30,7 @@ func init() {
 func randSeq(n int) string {
 	b := make([]rune, n)
 	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))]
+		b[i] = alphaNumericRunes[rand.Intn(len(alphaNumericRunes))]
 	}
 	return string(b)
 }
