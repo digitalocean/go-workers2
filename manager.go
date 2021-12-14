@@ -274,6 +274,8 @@ func (m *Manager) GetRetries(page uint64, pageSize int64, match string) (Retries
 }
 
 func (m *Manager) startHeartbeat() error {
+	m.sendHeartbeat()
+
 	heartbeatTicker := time.NewTicker(5 * time.Second)
 	m.heartbeatChannel = make(chan bool, 1)
 
