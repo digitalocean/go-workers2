@@ -51,7 +51,6 @@ func GenerateProcessNonce() (string, error) {
 func (m *Manager) buildHeartbeat() *storage.Heartbeat {
 	queues := []string{}
 
-	// tid -> wrapper(payload)
 	msgs := map[string]string{}
 
 	concurrency := 0
