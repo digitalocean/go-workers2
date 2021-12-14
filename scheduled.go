@@ -20,7 +20,6 @@ func (s *scheduledWorker) run() {
 		}
 
 		s.poll()
-		s.heartbeat()
 
 		time.Sleep(s.opts.PollInterval)
 	}
@@ -62,10 +61,6 @@ func (s *scheduledWorker) poll() {
 
 		s.opts.store.EnqueueMessageNow(context.Background(), queue, message.ToJson())
 	}
-}
-
-func (s *scheduledWorker) heartbeat() {
-	// TODO add heartbeat in here
 }
 
 func newScheduledWorker(opts Options) *scheduledWorker {
