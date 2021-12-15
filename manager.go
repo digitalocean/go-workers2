@@ -160,9 +160,7 @@ func (m *Manager) Run() {
 		wg.Done()
 	}()
 
-	if m.opts.Heartbeat {
-		go m.startHeartbeat()
-	}
+	go m.startHeartbeat()
 
 	// Release the lock so that Stop can acquire it
 	m.lock.Unlock()
@@ -180,7 +178,9 @@ func (m *Manager) Stop() {
 	if !m.running {
 		return
 	}
-	m.removeHeartbeat()
+	if m.opts.Heartbeat {
+		m.removeHeartbeat()
+	}
 	for _, w := range m.workers {
 		w.quit()
 	}
@@ -274,6 +274,10 @@ func (m *Manager) GetRetries(page uint64, pageSize int64, match string) (Retries
 }
 
 func (m *Manager) startHeartbeat() error {
+	if !m.opts.Heartbeat {
+		return nil
+	}
+
 	m.sendHeartbeat()
 
 	heartbeatTicker := time.NewTicker(5 * time.Second)
@@ -293,6 +297,10 @@ func (m *Manager) startHeartbeat() error {
 }
 
 func (m *Manager) removeHeartbeat() error {
+	if !m.opts.Heartbeat {
+		return nil
+	}
+
 	m.heartbeatChannel <- true
 	heartbeat := m.buildHeartbeat()
 	err := m.opts.store.RemoveHeartbeat(context.Background(), heartbeat)
@@ -300,6 +308,10 @@ func (m *Manager) removeHeartbeat() error {
 }
 
 func (m *Manager) sendHeartbeat() error {
+	if !m.opts.Heartbeat {
+		return nil
+	}
+
 	heartbeat := m.buildHeartbeat()
 
 	err := m.opts.store.SendHeartbeat(context.Background(), heartbeat)

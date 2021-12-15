@@ -90,7 +90,6 @@ func (m *Manager) buildHeartbeat() *storage.Heartbeat {
 			jsonWrapper, _ := json.Marshal(wrapper)
 
 			msgs[r.tid] = string(jsonWrapper)
-
 		}
 
 		w.runnersLock.Unlock()
@@ -111,7 +110,7 @@ func (m *Manager) buildHeartbeat() *storage.Heartbeat {
 
 	identity := fmt.Sprintf("%s:%d:%s", hostname, pid, m.processNonce)
 
-	h1 := &HeartbeatInfo{
+	heartbeatInfo := &HeartbeatInfo{
 		Hostname:    hostname,
 		StartedAt:   m.startedAt.UTC().Unix(),
 		Pid:         pid,
@@ -121,18 +120,18 @@ func (m *Manager) buildHeartbeat() *storage.Heartbeat {
 		Labels:      []string{},
 		Identity:    identity,
 	}
-	h1m, _ := json.Marshal(h1)
+	heartbeatInfoJson, _ := json.Marshal(heartbeatInfo)
 
-	h := &storage.Heartbeat{
+	heartbeat := &storage.Heartbeat{
 		Identity:       identity,
 		Beat:           time.Now(),
 		Quiet:          false,
 		Busy:           busy,
 		RSS:            0, // rss is not currently supported
-		Info:           string(h1m),
+		Info:           string(heartbeatInfoJson),
 		Pid:            pid,
 		WorkerMessages: msgs,
 	}
 
-	return h
+	return heartbeat
 }
