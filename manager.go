@@ -160,7 +160,9 @@ func (m *Manager) Run() {
 		wg.Done()
 	}()
 
-	go m.startHeartbeat()
+	if m.opts.Heartbeat {
+		go m.startHeartbeat()
+	}
 
 	// Release the lock so that Stop can acquire it
 	m.lock.Unlock()
@@ -274,47 +276,46 @@ func (m *Manager) GetRetries(page uint64, pageSize int64, match string) (Retries
 }
 
 func (m *Manager) startHeartbeat() error {
-	if !m.opts.Heartbeat {
-		return nil
+	err := m.sendHeartbeat()
+	if err != nil {
+		m.logger.Println("Failed to send heartbeat", err)
+		return err
 	}
-
-	m.sendHeartbeat()
 
 	heartbeatTicker := time.NewTicker(5 * time.Second)
 	m.heartbeatChannel = make(chan bool, 1)
 
-	go func() {
-		for {
-			select {
-			case <-heartbeatTicker.C:
-				m.sendHeartbeat()
-			case <-m.heartbeatChannel:
-				return
+	for {
+		select {
+		case <-heartbeatTicker.C:
+			err := m.sendHeartbeat()
+			if err != nil {
+				m.logger.Println("Failed to send heartbeat", err)
+				return err
 			}
+		case <-m.heartbeatChannel:
+			return nil
 		}
-	}()
+	}
 	return nil
 }
 
 func (m *Manager) removeHeartbeat() error {
-	if !m.opts.Heartbeat {
-		return nil
-	}
-
 	m.heartbeatChannel <- true
-	heartbeat := m.buildHeartbeat()
-	err := m.opts.store.RemoveHeartbeat(context.Background(), heartbeat)
+	heartbeat, err := m.buildHeartbeat()
+	if err != nil {
+		return err
+	}
+	err = m.opts.store.RemoveHeartbeat(context.Background(), heartbeat)
 	return err
 }
 
 func (m *Manager) sendHeartbeat() error {
-	if !m.opts.Heartbeat {
-		return nil
+	heartbeat, err := m.buildHeartbeat()
+	if err != nil {
+		return err
 	}
 
-	heartbeat := m.buildHeartbeat()
-
-	err := m.opts.store.SendHeartbeat(context.Background(), heartbeat)
-
+	err = m.opts.store.SendHeartbeat(context.Background(), heartbeat)
 	return err
 }

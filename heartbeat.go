@@ -48,7 +48,7 @@ func GenerateProcessNonce() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-func (m *Manager) buildHeartbeat() *storage.Heartbeat {
+func (m *Manager) buildHeartbeat() (*storage.Heartbeat, error) {
 	queues := []string{}
 
 	msgs := map[string]string{}
@@ -79,7 +79,11 @@ func (m *Manager) buildHeartbeat() *storage.Heartbeat {
 				CreatedAt:  msg.startedAt, // not actually started at
 				EnqueuedAt: time.Now().UTC().Unix(),
 			}
-			jsonMsg, _ := json.Marshal(workerMsg)
+
+			jsonMsg, err := json.Marshal(workerMsg)
+			if err != nil {
+				return nil, err
+			}
 
 			wrapper := &HeartbeatWorkerMsgWrapper{
 				Queue:   w.queue,
@@ -87,7 +91,10 @@ func (m *Manager) buildHeartbeat() *storage.Heartbeat {
 				RunAt:   msg.startedAt,
 			}
 
-			jsonWrapper, _ := json.Marshal(wrapper)
+			jsonWrapper, err := json.Marshal(wrapper)
+			if err != nil {
+				return nil, err
+			}
 
 			msgs[r.tid] = string(jsonWrapper)
 		}
@@ -95,7 +102,10 @@ func (m *Manager) buildHeartbeat() *storage.Heartbeat {
 		w.runnersLock.Unlock()
 	}
 
-	hostname, _ := os.Hostname()
+	hostname, err := os.Hostname()
+	if err != nil {
+		return nil, err
+	}
 	pid := os.Getpid()
 
 	if m.opts.ManagerDisplayName != "" {
@@ -120,7 +130,11 @@ func (m *Manager) buildHeartbeat() *storage.Heartbeat {
 		Labels:      []string{},
 		Identity:    identity,
 	}
-	heartbeatInfoJson, _ := json.Marshal(heartbeatInfo)
+	heartbeatInfoJson, err := json.Marshal(heartbeatInfo)
+
+	if err != nil {
+		return nil, err
+	}
 
 	heartbeat := &storage.Heartbeat{
 		Identity:       identity,
@@ -133,5 +147,5 @@ func (m *Manager) buildHeartbeat() *storage.Heartbeat {
 		WorkerMessages: msgs,
 	}
 
-	return heartbeat
+	return heartbeat, nil
 }
