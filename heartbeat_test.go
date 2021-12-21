@@ -23,7 +23,8 @@ func TestBuildHeartbeat(t *testing.T) {
 		return nil
 	})
 
-	heartbeat := mgr.buildHeartbeat()
+	heartbeat, err := mgr.buildHeartbeat()
+	assert.Nil(t, err)
 
 	hostname, _ := os.Hostname()
 
@@ -41,7 +42,7 @@ func TestBuildHeartbeat(t *testing.T) {
 	assert.Equal(t, false, heartbeat.Quiet)
 }
 
-func TestBuildHeartbeatMsg(t *testing.T) {
+func TestBuildHeartbeatWorkerMessage(t *testing.T) {
 	namespace := "prod"
 	opts := testOptionsWithNamespace(namespace)
 	mgr, err := newTestManager(opts)
@@ -86,22 +87,28 @@ func TestBuildHeartbeatMsg(t *testing.T) {
 	firstWorker := mgr.workers[0]
 	firstWorker.runners = []*taskRunner{tr}
 
-	heartbeat := mgr.buildHeartbeat()
+	heartbeat, err := mgr.buildHeartbeat()
+	assert.Nil(t, err)
 
-	info := &HeartbeatInfo{}
+	workerMessages := heartbeat.WorkerMessages
 
-	err = json.Unmarshal([]byte(heartbeat.Info), info)
+	assert.Equal(t, 1, len(workerMessages))
 
-	log.Println(heartbeat)
+	var workerValue string
 
-	// assert.Nil(t, err)
+	for _, v := range workerMessages {
+		workerValue = v
+	}
 
-	// assert.Equal(t, hostname, info.Hostname)
-	// assert.Equal(t, "prod", info.Tag)
-	// assert.ElementsMatch(t, []string{"somequeue", "second_queue"}, info.Queues)
-	// assert.Equal(t, 15, info.Concurrency)
-	// assert.Equal(t, []string{}, info.Labels)
+	var decodedWorkerMsgWrapper map[string]interface{}
 
-	// assert.Equal(t, false, heartbeat.Quiet)
-	// assert.Equal(heartbeat)
+	err = json.Unmarshal([]byte(workerValue), &decodedWorkerMsgWrapper)
+	assert.Nil(t, err)
+
+	var decodedWorkerMsgPayload map[string]interface{}
+
+	err = json.Unmarshal([]byte(decodedWorkerMsgWrapper["payload"].(string)), &decodedWorkerMsgPayload)
+
+	assert.Equal(t, "somequeue", decodedWorkerMsgWrapper["queue"])
+	assert.Equal(t, "MyWorker", decodedWorkerMsgPayload["class"])
 }
