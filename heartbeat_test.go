@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"testing"
-	"time"
 )
 
 func TestBuildHeartbeat(t *testing.T) {
@@ -51,28 +50,6 @@ func TestBuildHeartbeatWorkerMessage(t *testing.T) {
 	mgr.AddWorker("somequeue", 1, func(m *Msg) error {
 		return nil
 	})
-
-	startedAt := time.Now().UTC().Unix()
-
-	workerMsg := &HeartbeatWorkerMsg{
-		Retry:     1,
-		Queue:     "somequeue",
-		Backtrace: false,
-		Class:     "",
-		// Args:       "1",
-		Jid:        "a",
-		CreatedAt:  startedAt, // not actually started at
-		EnqueuedAt: time.Now().UTC().Unix(),
-	}
-	jsonMsg, _ := json.Marshal(workerMsg)
-
-	wrapper := &HeartbeatWorkerMsgWrapper{
-		Queue:   "somequeue",
-		Payload: string(jsonMsg),
-		RunAt:   startedAt,
-	}
-	jsonWrapper, _ := json.Marshal(wrapper)
-	log.Println(string(jsonWrapper))
 
 	msg, err := NewMsg("{\"class\":\"MyWorker\",\"jid\":\"jid-123\"}")
 
