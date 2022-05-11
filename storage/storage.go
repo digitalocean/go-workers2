@@ -5,9 +5,8 @@ import (
 	"time"
 )
 
-// TODO(wtlangford): Check if the value of these keys are Sidekiq-compatible
 const (
-	RetryKey         = "goretry"
+	RetryKey         = "retry"
 	ScheduledJobsKey = "schedule"
 )
 
