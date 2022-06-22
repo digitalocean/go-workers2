@@ -57,6 +57,8 @@ func (r *redisStore) CheckRtt(ctx context.Context) int64 {
 	return ellapsed.Microseconds()
 }
 
+var sidekiqHeartbeatJobsKey = ":work"
+
 func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) error {
 
 	pipe := r.client.Pipeline()
@@ -75,7 +77,7 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 	pipe.HSet(ctx, managerIdentity, "info", heartbeat.Info)
 	pipe.Expire(ctx, managerIdentity, 60*time.Second) // set the TTL of the heartbeat to 60
 
-	workersKey := managerIdentity + ":workers"
+	workersKey := managerIdentity + sidekiqHeartbeatJobsKey
 
 	pipe.Del(ctx, workersKey)
 
@@ -101,7 +103,7 @@ func (r *redisStore) RemoveHeartbeat(ctx context.Context, heartbeat *Heartbeat) 
 	pipe := r.client.Pipeline()
 	pipe.Del(ctx, managerIdentity)
 
-	workersKey := managerIdentity + ":workers"
+	workersKey := managerIdentity + sidekiqHeartbeatJobsKey
 	pipe.Del(ctx, workersKey)
 
 	_, err := pipe.Exec(ctx)
