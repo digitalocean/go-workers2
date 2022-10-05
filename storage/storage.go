@@ -37,6 +37,10 @@ type Retries struct {
 
 // Store is the interface for storing and retrieving data
 type Store interface {
+	// Worker manager cluster operations
+	AddActiveCluster(ctx context.Context, managerUUID string, managerPriority float64) error
+	EvictExpiredClusters(ctx context.Context, expireTS int64) error
+	GetActiveClusterName(ctx context.Context) (string, error)
 
 	// General queue operations
 	CreateQueue(ctx context.Context, queue string) error
@@ -59,4 +63,7 @@ type Store interface {
 
 	// Retries
 	GetAllRetries(ctx context.Context) (*Retries, error)
+
+	// Misc
+	GetTime(ctx context.Context) (time.Time, error)
 }

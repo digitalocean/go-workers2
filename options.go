@@ -12,6 +12,14 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
+type FailoverStrategy int
+
+const (
+	NoFailover FailoverStrategy = iota
+	ActivePassiveFailover
+	ActiveActiveFailover
+)
+
 // Options contains the set of configuration options for a manager and/or producer
 type Options struct {
 	ProcessID    string
@@ -29,6 +37,13 @@ type Options struct {
 
 	// Optional display name used when displaying manager stats
 	ManagerDisplayName string
+
+	FailoverStrategy FailoverStrategy
+
+	// One or more managers can belong to a cluster
+	// Active/passive failover will failover by cluster
+	ClusterName     string
+	ClusterPriority float64
 
 	// Log
 	Logger *log.Logger

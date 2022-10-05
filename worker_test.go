@@ -12,6 +12,7 @@ import (
 type dummyFetcher struct {
 	queue       func() string
 	fetch       func()
+	setActive   func(bool)
 	acknowledge func(*Msg)
 	ready       func() chan bool
 	messages    func() chan *Msg
@@ -19,13 +20,14 @@ type dummyFetcher struct {
 	closed      func() bool
 }
 
-func (d dummyFetcher) Queue() string       { return d.queue() }
-func (d dummyFetcher) Fetch()              { d.fetch() }
-func (d dummyFetcher) Acknowledge(m *Msg)  { d.acknowledge(m) }
-func (d dummyFetcher) Ready() chan bool    { return d.ready() }
-func (d dummyFetcher) Messages() chan *Msg { return d.messages() }
-func (d dummyFetcher) Close()              { d.close() }
-func (d dummyFetcher) Closed() bool        { return d.closed() }
+func (d dummyFetcher) Queue() string         { return d.queue() }
+func (d dummyFetcher) Fetch()                { d.fetch() }
+func (d dummyFetcher) Acknowledge(m *Msg)    { d.acknowledge(m) }
+func (d dummyFetcher) Ready() chan bool      { return d.ready() }
+func (d dummyFetcher) SetActive(active bool) { d.setActive(active) }
+func (d dummyFetcher) Messages() chan *Msg   { return d.messages() }
+func (d dummyFetcher) Close()                { d.close() }
+func (d dummyFetcher) Closed() bool          { return d.closed() }
 
 func TestNewWorker(t *testing.T) {
 	testLogger := log.New(os.Stdout, "test-go-workers2: ", log.Ldate|log.Lmicroseconds)

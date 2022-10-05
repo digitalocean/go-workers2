@@ -16,11 +16,12 @@ func setupTestOptionsWithNamespace(namespace string) (Options, error) {
 
 func testOptionsWithNamespace(namespace string) Options {
 	return Options{
-		ServerAddr: "localhost:6379",
-		ProcessID:  "1",
-		Database:   15,
-		PoolSize:   1,
-		Namespace:  namespace,
+		ServerAddr:       "localhost:6379",
+		ProcessID:        "1",
+		Database:         15,
+		PoolSize:         1,
+		Namespace:        namespace,
+		FailoverStrategy: NoFailover,
 	}
 }
 
