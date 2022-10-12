@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/digitalocean/go-workers2/storage"
@@ -16,6 +17,7 @@ type Fetcher interface {
 	Fetch()
 	Acknowledge(*Msg)
 	Ready() chan bool
+	SetActive(bool)
 	Messages() chan *Msg
 	Close()
 	Closed() bool
@@ -25,12 +27,15 @@ type simpleFetcher struct {
 	store     storage.Store
 	processID string
 	queue     string
+	active    bool
+	lock      sync.Mutex
 	ready     chan bool
-	messages  chan *Msg
-	stop      chan bool
-	exit      chan bool
-	closed    chan bool
-	logger    *log.Logger
+
+	messages chan *Msg
+	stop     chan bool
+	exit     chan bool
+	closed   chan bool
+	logger   *log.Logger
 }
 
 func newSimpleFetcher(queue string, opts Options) *simpleFetcher {
@@ -38,11 +43,14 @@ func newSimpleFetcher(queue string, opts Options) *simpleFetcher {
 	if logger == nil {
 		logger = log.New(os.Stdout, "go-workers2: ", log.Ldate|log.Lmicroseconds)
 	}
+	// always active if failover strategy is not active/passive failover
+	active := opts.FailoverStrategy != ActivePassiveFailover
 
 	return &simpleFetcher{
 		store:     opts.store,
 		processID: opts.ProcessID,
 		queue:     queue,
+		active:    active,
 		ready:     make(chan bool),
 		messages:  make(chan *Msg),
 		stop:      make(chan bool),
@@ -92,6 +100,12 @@ func (f *simpleFetcher) Fetch() {
 }
 
 func (f *simpleFetcher) tryFetchMessage() {
+	f.lock.Lock()
+	if !f.active {
+		f.lock.Unlock()
+		return
+	}
+	f.lock.Unlock()
 	message, err := f.store.DequeueMessage(context.Background(), f.queue, f.inprogressQueue(), 1*time.Second)
 	if err != nil {
 		// If redis returns null, the queue is empty.
@@ -127,6 +141,12 @@ func (f *simpleFetcher) Ready() chan bool {
 	return f.ready
 }
 
+func (f *simpleFetcher) SetActive(active bool) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	f.active = active
+}
+
 func (f *simpleFetcher) Close() {
 	f.stop <- true
 	<-f.exit
@@ -142,6 +162,12 @@ func (f *simpleFetcher) Closed() bool {
 }
 
 func (f *simpleFetcher) inprogressMessages() []string {
+	f.lock.Lock()
+	if !f.active {
+		f.lock.Unlock()
+		return nil
+	}
+	f.lock.Unlock()
 	messages, err := f.store.ListMessages(context.Background(), f.inprogressQueue())
 	if err != nil {
 		f.logger.Println("ERR: ", err)

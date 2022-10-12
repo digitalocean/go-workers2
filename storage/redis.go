@@ -230,3 +230,48 @@ func (r *redisStore) IncrementStats(ctx context.Context, metric string) error {
 func (r *redisStore) getQueueName(queue string) string {
 	return r.namespace + "queue:" + queue
 }
+
+func (r *redisStore) GetTime(ctx context.Context) (time.Time, error) {
+	return r.client.Time(ctx).Result()
+}
+
+func (r *redisStore) AddActiveCluster(ctx context.Context, managerUUID string, managerPriority float64) error {
+	now, err := r.GetTime(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.client.ZAdd(ctx, r.namespace+"managers-active-ts", &redis.Z{Member: managerUUID, Score: float64(now.Unix())}).Result()
+	if err != nil {
+		return err
+	}
+	_, err = r.client.ZAdd(ctx, r.namespace+"managers-active", &redis.Z{Member: managerUUID, Score: managerPriority}).Result()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// EvictExpiredManagers evicts managers that have a last active <= expireTS
+func (r *redisStore) EvictExpiredClusters(ctx context.Context, expireTS int64) error {
+	evictManagerUUIDs, err := r.client.ZRangeByScore(ctx, r.namespace+"managers-active-ts", &redis.ZRangeBy{Min: "-inf", Max: fmt.Sprintf("(%d", expireTS)}).Result()
+	if err != nil {
+		return err
+	}
+	_, err = r.client.ZRem(ctx, r.namespace+"managers-active", evictManagerUUIDs).Result()
+	if err != nil {
+		return err
+	}
+	r.client.ZRemRangeByScore(ctx, r.namespace+"managers-active-ts", "-inf", fmt.Sprintf("(%d", expireTS))
+	return nil
+}
+
+func (r *redisStore) GetActiveClusterName(ctx context.Context) (string, error) {
+	activeManagerUUIDs, err := r.client.ZRangeByScore(ctx, r.namespace+"managers-active-ts", &redis.ZRangeBy{Min: "-inf", Max: "+inf", Offset: 0, Count: 1}).Result()
+	if err != nil {
+		return "", err
+	}
+	if len(activeManagerUUIDs) == 0 {
+		return "", nil
+	}
+	return activeManagerUUIDs[1], nil
+}

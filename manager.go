@@ -5,9 +5,15 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
+)
+
+const (
+	updateActiveClusterInterval = 60 * time.Second
+	evictInterval               = -90 * time.Second
 )
 
 // Manager coordinates work, workers, and signaling needed for job processing
@@ -19,6 +25,8 @@ type Manager struct {
 	lock     sync.Mutex
 	signal   chan os.Signal
 	running  bool
+	stop     chan bool
+	active   bool
 	logger   *log.Logger
 
 	beforeStartHooks []func()
@@ -126,6 +134,17 @@ func (m *Manager) Run() {
 		wg.Done()
 	}()
 
+	if m.opts.FailoverStrategy == ActivePassiveFailover {
+		wg.Add(1)
+		go func() {
+			err := m.updateActiveClusterByTimeInterval()
+			if err != nil {
+				m.logger.Println("ERR: ", m.uuid, err)
+			}
+			wg.Done()
+		}()
+	}
+
 	wg.Add(len(m.workers))
 	for i := range m.workers {
 		w := m.workers[i]
@@ -165,6 +184,7 @@ func (m *Manager) Stop() {
 	for _, h := range m.duringDrainHooks {
 		h()
 	}
+	m.stop <- true
 	m.stopSignalHandler()
 }
 
@@ -222,6 +242,57 @@ func (m *Manager) GetStats() (Stats, error) {
 	}
 
 	return stats, nil
+}
+
+func (m *Manager) updateActiveClusterByTimeInterval() error {
+	ticker := time.NewTicker(updateActiveClusterInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.stop:
+			{
+				return nil
+			}
+		case <-ticker.C:
+			m.lock.Lock()
+			if !m.running {
+				m.lock.Unlock()
+				return nil
+			}
+			m.lock.Unlock()
+			err := m.UpdateActiveCluster()
+			if err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func (m *Manager) UpdateActiveCluster() error {
+	ctx := context.Background()
+	now, err := m.opts.store.GetTime(ctx)
+	if err != nil {
+		return err
+	}
+	err = m.opts.store.EvictExpiredClusters(ctx, now.Add(evictInterval).Unix())
+	if err != nil {
+		return err
+	}
+	err = m.opts.store.AddActiveCluster(ctx, m.uuid, m.opts.ClusterPriority)
+	if err != nil {
+		return err
+	}
+	activeClusterUUID, err := m.opts.store.GetActiveClusterName(ctx)
+	activeManager := m.uuid == activeClusterUUID
+	m.lock.Lock()
+	if (m.active && !activeManager) || (!m.active && activeManager) {
+		m.active = activeManager
+		for _, worker := range m.workers {
+			worker.Active() <- activeManager
+		}
+	}
+	m.lock.Unlock()
+	return nil
 }
 
 // GetRetries returns the set of retry jobs for the manager

@@ -13,6 +13,7 @@ type worker struct {
 	runnersLock sync.Mutex
 	stop        chan bool
 	running     bool
+	active      chan bool
 	logger      *log.Logger
 }
 
@@ -25,6 +26,7 @@ func newWorker(logger *log.Logger, queue string, concurrency int, handler JobFun
 		handler:     handler,
 		concurrency: concurrency,
 		stop:        make(chan bool),
+		active:      make(chan bool),
 		logger:      logger,
 	}
 	return w
@@ -84,10 +86,16 @@ func (w *worker) start(fetcher Fetcher) {
 				}
 				w.runnersLock.Unlock()
 			}
+		case active := <-w.Active():
+			fetcher.SetActive(active)
 		case <-exit:
 			return
 		}
 	}
+}
+
+func (w *worker) Active() chan bool {
+	return w.active
 }
 
 func (w *worker) quit() {
