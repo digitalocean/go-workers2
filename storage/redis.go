@@ -49,6 +49,71 @@ func (r *redisStore) DequeueMessage(ctx context.Context, queue string, inprogres
 	return message, nil
 }
 
+func (r *redisStore) CheckRtt(ctx context.Context) int64 {
+	start := time.Now()
+	r.client.Ping(ctx)
+	ellapsed := time.Since(start)
+
+	return ellapsed.Microseconds()
+}
+
+var sidekiqHeartbeatJobsKey = ":work"
+
+func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) error {
+
+	pipe := r.client.Pipeline()
+	rtt := r.CheckRtt(ctx)
+
+	managerIdentity := r.namespace + heartbeat.Identity
+	sidekiqProcessesKey := r.namespace + "processes"
+
+	pipe.SAdd(ctx, sidekiqProcessesKey, heartbeat.Identity) // add to the sidekiq processes set without the namespace
+
+	pipe.HSet(ctx, managerIdentity, "beat", heartbeat.Beat.UTC().Unix())
+	pipe.HSet(ctx, managerIdentity, "quiet", heartbeat.Quiet)
+	pipe.HSet(ctx, managerIdentity, "busy", heartbeat.Busy)
+	pipe.HSet(ctx, managerIdentity, "rtt_us", rtt)
+	pipe.HSet(ctx, managerIdentity, "rss", heartbeat.RSS)
+	pipe.HSet(ctx, managerIdentity, "info", heartbeat.Info)
+	pipe.Expire(ctx, managerIdentity, 60*time.Second) // set the TTL of the heartbeat to 60
+
+	workersKey := managerIdentity + sidekiqHeartbeatJobsKey
+
+	pipe.Del(ctx, workersKey)
+
+	for tid, msg := range heartbeat.WorkerMessages {
+		// fake the sidekiq thread id
+		fakeThreadId := fmt.Sprintf("%d-%s", heartbeat.Pid, tid)
+		pipe.HSet(ctx, workersKey, fakeThreadId, msg)
+	}
+
+	pipe.Expire(ctx, workersKey, 60*time.Second)
+
+	_, err := pipe.Exec(ctx)
+	if err != nil && err != redis.Nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *redisStore) RemoveHeartbeat(ctx context.Context, heartbeat *Heartbeat) error {
+	managerIdentity := r.namespace + heartbeat.Identity
+
+	pipe := r.client.Pipeline()
+	pipe.Del(ctx, managerIdentity)
+
+	workersKey := managerIdentity + sidekiqHeartbeatJobsKey
+	pipe.Del(ctx, workersKey)
+
+	_, err := pipe.Exec(ctx)
+	if err != nil && err != redis.Nil {
+		return err
+	}
+
+	return nil
+}
+
 func (r *redisStore) EnqueueMessage(ctx context.Context, queue string, priority float64, message string) error {
 	_, err := r.client.ZAdd(ctx, r.getQueueName(queue), &redis.Z{
 		Score:  priority,

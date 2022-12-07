@@ -3,6 +3,7 @@ package workers
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -13,10 +14,25 @@ type taskRunner struct {
 	currentMsg *Msg
 	lock       sync.RWMutex
 	logger     *log.Logger
+	tid        string
 }
 
 func (w *taskRunner) quit() {
 	close(w.stop)
+}
+
+var alphaNumericRunes = []rune("abcdefghijklmnopqrstuvwxyz1234567890")
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
+func randSeq(n int) string {
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = alphaNumericRunes[rand.Intn(len(alphaNumericRunes))]
+	}
+	return string(b)
 }
 
 func (w *taskRunner) work(messages <-chan *Msg, done chan<- *Msg, ready chan<- bool) {
@@ -72,5 +88,6 @@ func newTaskRunner(logger *log.Logger, handler JobFunc) *taskRunner {
 		handler: handler,
 		stop:    make(chan bool),
 		logger:  logger,
+		tid:     randSeq(3),
 	}
 }

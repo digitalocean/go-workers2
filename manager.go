@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
@@ -12,14 +13,17 @@ import (
 
 // Manager coordinates work, workers, and signaling needed for job processing
 type Manager struct {
-	uuid     string
-	opts     Options
-	schedule *scheduledWorker
-	workers  []*worker
-	lock     sync.Mutex
-	signal   chan os.Signal
-	running  bool
-	logger   *log.Logger
+	uuid             string
+	opts             Options
+	schedule         *scheduledWorker
+	workers          []*worker
+	lock             sync.Mutex
+	signal           chan os.Signal
+	running          bool
+	logger           *log.Logger
+	startedAt        time.Time
+	processNonce     string
+	heartbeatChannel chan bool
 
 	beforeStartHooks []func()
 	duringDrainHooks []func()
@@ -34,10 +38,16 @@ func NewManager(options Options) (*Manager, error) {
 		return nil, err
 	}
 
+	processNonce, err := GenerateProcessNonce()
+	if err != nil {
+		return nil, err
+	}
+
 	return &Manager{
-		uuid:   uuid.New().String(),
-		logger: options.Logger,
-		opts:   options,
+		uuid:         uuid.New().String(),
+		logger:       options.Logger,
+		opts:         options,
+		processNonce: processNonce,
 	}, nil
 }
 
@@ -48,10 +58,16 @@ func NewManagerWithRedisClient(options Options, client *redis.Client) (*Manager,
 		return nil, err
 	}
 
+	processNonce, err := GenerateProcessNonce()
+	if err != nil {
+		return nil, err
+	}
+
 	return &Manager{
-		uuid:   uuid.New().String(),
-		logger: options.Logger,
-		opts:   options,
+		uuid:         uuid.New().String(),
+		logger:       options.Logger,
+		opts:         options,
+		processNonce: processNonce,
 	}, nil
 }
 
@@ -104,6 +120,8 @@ func (m *Manager) AddRetriesExhaustedHandlers(handlers ...RetriesExhaustedFunc) 
 
 // Run starts all workers under this Manager and blocks until they exit.
 func (m *Manager) Run() {
+	m.startedAt = time.Now()
+
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	if m.running {
@@ -142,6 +160,10 @@ func (m *Manager) Run() {
 		wg.Done()
 	}()
 
+	if m.opts.Heartbeat {
+		go m.startHeartbeat()
+	}
+
 	// Release the lock so that Stop can acquire it
 	m.lock.Unlock()
 	wg.Wait()
@@ -157,6 +179,9 @@ func (m *Manager) Stop() {
 	defer m.lock.Unlock()
 	if !m.running {
 		return
+	}
+	if m.opts.Heartbeat {
+		m.removeHeartbeat()
 	}
 	for _, w := range m.workers {
 		w.quit()
@@ -248,4 +273,49 @@ func (m *Manager) GetRetries(page uint64, pageSize int64, match string) (Retries
 		TotalRetryCount: storeRetries.TotalRetryCount,
 		RetryJobs:       retryJobs,
 	}, nil
+}
+
+func (m *Manager) startHeartbeat() error {
+	err := m.sendHeartbeat()
+	if err != nil {
+		m.logger.Println("Failed to send heartbeat", err)
+		return err
+	}
+
+	heartbeatTicker := time.NewTicker(5 * time.Second)
+	m.heartbeatChannel = make(chan bool, 1)
+
+	for {
+		select {
+		case <-heartbeatTicker.C:
+			err := m.sendHeartbeat()
+			if err != nil {
+				m.logger.Println("Failed to send heartbeat", err)
+				return err
+			}
+		case <-m.heartbeatChannel:
+			return nil
+		}
+	}
+	return nil
+}
+
+func (m *Manager) removeHeartbeat() error {
+	m.heartbeatChannel <- true
+	heartbeat, err := m.buildHeartbeat()
+	if err != nil {
+		return err
+	}
+	err = m.opts.store.RemoveHeartbeat(context.Background(), heartbeat)
+	return err
+}
+
+func (m *Manager) sendHeartbeat() error {
+	heartbeat, err := m.buildHeartbeat()
+	if err != nil {
+		return err
+	}
+
+	err = m.opts.store.SendHeartbeat(context.Background(), heartbeat)
+	return err
 }
