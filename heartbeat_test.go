@@ -6,12 +6,13 @@ import (
 	"log"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestBuildHeartbeat(t *testing.T) {
 	namespace := "prod"
 	opts := testOptionsWithNamespace(namespace)
-	mgr, err := newTestManager(opts)
+	mgr, err := newTestManager(opts, true)
 	assert.NoError(t, err)
 
 	mgr.AddWorker("somequeue", 5, func(m *Msg) error {
@@ -22,7 +23,7 @@ func TestBuildHeartbeat(t *testing.T) {
 		return nil
 	})
 
-	heartbeat, err := mgr.buildHeartbeat()
+	heartbeat, err := mgr.buildHeartbeat(time.Now().UTC())
 	assert.Nil(t, err)
 
 	hostname, _ := os.Hostname()
@@ -44,7 +45,7 @@ func TestBuildHeartbeat(t *testing.T) {
 func TestBuildHeartbeatWorkerMessage(t *testing.T) {
 	namespace := "prod"
 	opts := testOptionsWithNamespace(namespace)
-	mgr, err := newTestManager(opts)
+	mgr, err := newTestManager(opts, true)
 	assert.NoError(t, err)
 
 	mgr.AddWorker("somequeue", 1, func(m *Msg) error {
@@ -64,23 +65,16 @@ func TestBuildHeartbeatWorkerMessage(t *testing.T) {
 	firstWorker := mgr.workers[0]
 	firstWorker.runners = []*taskRunner{tr}
 
-	heartbeat, err := mgr.buildHeartbeat()
+	heartbeat, err := mgr.buildHeartbeat(time.Now().UTC())
 	assert.Nil(t, err)
 
-	workerMessages := heartbeat.WorkerMessages
-
-	assert.Equal(t, 1, len(workerMessages))
-
-	var workerValue string
-
-	for _, v := range workerMessages {
-		workerValue = v
-	}
+	assert.Equal(t, 1, len(heartbeat.TaskRunnersInfo))
 
 	var decodedWorkerMsgWrapper map[string]interface{}
-
-	err = json.Unmarshal([]byte(workerValue), &decodedWorkerMsgWrapper)
-	assert.Nil(t, err)
+	for _, v := range heartbeat.TaskRunnersInfo {
+		err = json.Unmarshal([]byte(v.WorkerMsg), &decodedWorkerMsgWrapper)
+		assert.Nil(t, err)
+	}
 
 	var decodedWorkerMsgPayload map[string]interface{}
 

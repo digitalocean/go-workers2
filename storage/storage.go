@@ -39,15 +39,30 @@ type Retries struct {
 type Heartbeat struct {
 	Identity string
 
-	Beat  time.Time
-	Quiet bool
-	Busy  int
-	RttUS int
-	RSS   int64
-	Info  string
-	Pid   int
+	Beat          time.Time
+	Quiet         bool
+	Busy          int
+	RttUS         int
+	RSS           int64
+	Info          string
+	Pid           int
+	ActiveManager bool
 
-	WorkerMessages map[string]string
+	TaskRunnersInfo []TaskRunnerInfo
+	*ClusterInfo
+}
+
+type TaskRunnerInfo struct {
+	Pid             int
+	Tid             string
+	Queue           string
+	InProgressQueue string
+	WorkerMsg       string
+}
+
+type ClusterInfo struct {
+	ClusterID       string
+	ClusterPriority int
 }
 
 // Store is the interface for storing and retrieving data
@@ -73,9 +88,24 @@ type Store interface {
 	GetAllStats(ctx context.Context, queues []string) (*Stats, error)
 
 	// Heartbeat
-	SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) error
-	RemoveHeartbeat(ctx context.Context, heartbeat *Heartbeat) error
+	SendHeartbeat(ctx context.Context, heartbeat *Heartbeat, heartbeatManagerTTL time.Duration) error
+	RemoveHeartbeat(ctx context.Context, heartbeatID string) error
+
+	// Worker manager cluster operations
+	AddActiveCluster(ctx context.Context, clusterID string, clusterPriority float64) error
+	EvictExpiredClusters(ctx context.Context, expireTS int64) error
+	GetActiveClusterIDs(ctx context.Context) ([]string, error)
+	GetHighestPriorityActiveClusterID(ctx context.Context) (string, error)
+
+	// Task runner expiration operations
+	GetExpiredTaskRunnerKeys(ctx context.Context, expireTS int64) ([]string, error)
+	GetTaskRunnerInfo(ctx context.Context, taskRunnerKey string) (TaskRunnerInfo, error)
+	EvictTaskRunnerInfo(ctx context.Context, pid int, tid string) error
+	RequeueMessagesFromInProgressQueue(ctx context.Context, inprogressQueue, queue string) ([]string, error)
 
 	// Retries
 	GetAllRetries(ctx context.Context) (*Retries, error)
+
+	// Misc
+	GetTime(ctx context.Context) (time.Time, error)
 }

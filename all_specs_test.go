@@ -1,6 +1,14 @@
 package workers
 
-import "context"
+import (
+	"context"
+	"time"
+)
+
+const (
+	testServerAddr = "localhost:6379"
+	testDatabase   = 15
+)
 
 func setupTestOptions() (Options, error) {
 	return setupTestOptionsWithNamespace("")
@@ -16,11 +24,45 @@ func setupTestOptionsWithNamespace(namespace string) (Options, error) {
 
 func testOptionsWithNamespace(namespace string) Options {
 	return Options{
-		ServerAddr: "localhost:6379",
+		ServerAddr: testServerAddr,
 		ProcessID:  "1",
-		Database:   15,
+		Database:   testDatabase,
 		PoolSize:   1,
 		Namespace:  namespace,
+	}
+}
+
+func testHeartbeatOptionsWithProcess(namespace, processID string) Options {
+	return Options{
+		ServerAddr:   testServerAddr,
+		ProcessID:    processID,
+		Database:     testDatabase,
+		PoolSize:     1,
+		Namespace:    namespace,
+		PollInterval: time.Second,
+		Heartbeat: &HeartbeatOptions{
+			Interval:                2 * time.Second,
+			TaskRunnerEvictInterval: 8 * time.Second,
+		},
+	}
+}
+
+func testHeartbeatOptionsWithCluster(namespace, processID, clusterID string, clusterPriority float64) Options {
+	return Options{
+		ServerAddr: testServerAddr,
+		ProcessID:  processID,
+		Database:   testDatabase,
+		PoolSize:   1,
+		Namespace:  namespace,
+		Heartbeat: &HeartbeatOptions{
+			Interval:                2 * time.Second,
+			TaskRunnerEvictInterval: 6 * time.Second,
+			ClusterEvictInterval:    6 * time.Second,
+		},
+		ActivePassiveFailover: &ActivePassFailoverOptions{
+			ClusterID:       clusterID,
+			ClusterPriority: clusterPriority,
+		},
 	}
 }
 
@@ -31,6 +73,13 @@ type callCounter struct {
 }
 
 func newCallCounter() *callCounter {
+	return &callCounter{
+		syncCh:    make(chan *Msg),
+		ackSyncCh: make(chan bool),
+	}
+}
+
+func newCallCounterWithMessageProcessTime(messageProcessTime time.Duration) *callCounter {
 	return &callCounter{
 		syncCh:    make(chan *Msg),
 		ackSyncCh: make(chan bool),

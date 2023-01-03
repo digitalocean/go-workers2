@@ -6,14 +6,16 @@ import (
 )
 
 type worker struct {
-	queue       string
-	handler     JobFunc
-	concurrency int
-	runners     []*taskRunner
-	runnersLock sync.Mutex
-	stop        chan bool
-	running     bool
-	logger      *log.Logger
+	queue           string
+	inProgressQueue string
+	handler         JobFunc
+	concurrency     int
+	runners         []*taskRunner
+	runnersLock     sync.Mutex
+	stop            chan bool
+	running         bool
+	fetcher         Fetcher
+	logger          *log.Logger
 }
 
 func newWorker(logger *log.Logger, queue string, concurrency int, handler JobFunc) *worker {
@@ -37,6 +39,8 @@ func (w *worker) start(fetcher Fetcher) {
 		return
 	}
 	w.running = true
+	w.fetcher = fetcher
+	w.inProgressQueue = fetcher.InProgressQueue()
 	defer func() {
 		w.runnersLock.Lock()
 		w.running = false

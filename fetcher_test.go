@@ -8,7 +8,7 @@ import (
 )
 
 func buildFetch(queue string, opts Options) Fetcher {
-	fetch := newSimpleFetcher(queue, opts)
+	fetch := newSimpleFetcher(queue, opts, true)
 	go fetch.Fetch()
 	return fetch
 }

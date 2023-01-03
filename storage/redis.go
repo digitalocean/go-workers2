@@ -59,37 +59,46 @@ func (r *redisStore) CheckRtt(ctx context.Context) int64 {
 
 var sidekiqHeartbeatJobsKey = ":work"
 
-func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) error {
+func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat, heartbeatManagerTTL time.Duration) error {
+	now, err := r.GetTime(ctx)
+	if err != nil {
+		return err
+	}
 
 	pipe := r.client.Pipeline()
 	rtt := r.CheckRtt(ctx)
 
-	managerIdentity := r.namespace + heartbeat.Identity
+	managerKey := r.getManagerKey(heartbeat.Identity)
 	sidekiqProcessesKey := r.namespace + "processes"
-
 	pipe.SAdd(ctx, sidekiqProcessesKey, heartbeat.Identity) // add to the sidekiq processes set without the namespace
 
-	pipe.HSet(ctx, managerIdentity, "beat", heartbeat.Beat.UTC().Unix())
-	pipe.HSet(ctx, managerIdentity, "quiet", heartbeat.Quiet)
-	pipe.HSet(ctx, managerIdentity, "busy", heartbeat.Busy)
-	pipe.HSet(ctx, managerIdentity, "rtt_us", rtt)
-	pipe.HSet(ctx, managerIdentity, "rss", heartbeat.RSS)
-	pipe.HSet(ctx, managerIdentity, "info", heartbeat.Info)
-	pipe.Expire(ctx, managerIdentity, 60*time.Second) // set the TTL of the heartbeat to 60
+	pipe.HMSet(ctx, managerKey, "beat", heartbeat.Beat.UTC().Unix())
+	pipe.HSet(ctx, managerKey, "quiet", heartbeat.Quiet)
+	pipe.HSet(ctx, managerKey, "busy", heartbeat.Busy)
+	pipe.HSet(ctx, managerKey, "rtt_us", rtt)
+	pipe.HSet(ctx, managerKey, "rss", heartbeat.RSS)
+	pipe.HSet(ctx, managerKey, "info", heartbeat.Info)
+	pipe.Expire(ctx, managerKey, heartbeatManagerTTL)
 
-	workersKey := managerIdentity + sidekiqHeartbeatJobsKey
+	workKey := r.getWorkKey(managerKey)
+	pipe.Del(ctx, workKey)
 
-	pipe.Del(ctx, workersKey)
-
-	for tid, msg := range heartbeat.WorkerMessages {
-		// fake the sidekiq thread id
-		fakeThreadId := fmt.Sprintf("%d-%s", heartbeat.Pid, tid)
-		pipe.HSet(ctx, workersKey, fakeThreadId, msg)
+	for _, taskRunnerInfo := range heartbeat.TaskRunnersInfo {
+		taskRunnerID := r.getTaskRunnerID(heartbeat.Pid, taskRunnerInfo.Tid)
+		if taskRunnerInfo.WorkerMsg != "" {
+			// workKey contains in-progress work messages for a given task runner as of the heartbeat
+			pipe.HSet(ctx, workKey, taskRunnerID, taskRunnerInfo.WorkerMsg)
+		}
+		// taskRunnerKey contains taskrunner info used for recovering un-handled in-progress work
+		taskRunnerKey := r.getTaskRunnerKey(taskRunnerID)
+		pipe.HMSet(ctx, taskRunnerKey,
+			"pid", taskRunnerInfo.Pid,
+			"tid", taskRunnerInfo.Tid,
+			"queue", taskRunnerInfo.Queue,
+			"inprogress_queue", taskRunnerInfo.InProgressQueue)
+		pipe.ZAdd(ctx, r.namespace+"task-runners-active-ts", &redis.Z{Member: taskRunnerKey, Score: float64(now.Unix())})
 	}
-
-	pipe.Expire(ctx, workersKey, 60*time.Second)
-
-	_, err := pipe.Exec(ctx)
+	_, err = pipe.Exec(ctx)
 	if err != nil && err != redis.Nil {
 		return err
 	}
@@ -97,14 +106,86 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 	return nil
 }
 
-func (r *redisStore) RemoveHeartbeat(ctx context.Context, heartbeat *Heartbeat) error {
-	managerIdentity := r.namespace + heartbeat.Identity
+func (r *redisStore) GetExpiredTaskRunnerKeys(ctx context.Context, expireTS int64) ([]string, error) {
+	expiredTaskRunnerKeys, err := r.client.ZRangeByScore(ctx, r.namespace+"task-runners-active-ts", &redis.ZRangeBy{Min: "-inf", Max: fmt.Sprintf("(%d", expireTS)}).Result()
+	if err != nil && err != redis.Nil {
+		return nil, err
+	}
+	return expiredTaskRunnerKeys, nil
+}
+
+func (r *redisStore) getManagerKey(heartbeatID string) string {
+	return r.namespace + heartbeatID
+}
+
+func (r *redisStore) getWorkKey(managerID string) string {
+	return managerID + sidekiqHeartbeatJobsKey
+}
+
+func (r *redisStore) getTaskRunnerID(pid int, tid string) string {
+	return fmt.Sprintf("%d-%s", pid, tid)
+}
+
+func (r *redisStore) getTaskRunnerKey(taskRunnerID string) string {
+	return r.namespace + "taskrunner-" + taskRunnerID
+}
+
+func (r *redisStore) GetTaskRunnerInfo(ctx context.Context, taskRunnerKey string) (TaskRunnerInfo, error) {
+	taskRunnerInfoMap, err := r.client.HGetAll(ctx, taskRunnerKey).Result()
+	pid, err := strconv.Atoi(taskRunnerInfoMap["pid"])
+	if err != nil {
+		return TaskRunnerInfo{}, err
+	}
+	taskRunnerInfo := TaskRunnerInfo{
+		Tid:             taskRunnerInfoMap["tid"],
+		Pid:             pid,
+		Queue:           taskRunnerInfoMap["queue"],
+		InProgressQueue: taskRunnerInfoMap["inprogress_queue"],
+	}
+	if err != nil && err != redis.Nil {
+		return TaskRunnerInfo{}, err
+	}
+	return taskRunnerInfo, err
+}
+
+func (r *redisStore) EvictTaskRunnerInfo(ctx context.Context, pid int, tid string) error {
+	taskRunnerID := r.getTaskRunnerID(pid, tid)
+	taskRunnerKey := r.getTaskRunnerKey(taskRunnerID)
+	pipe := r.client.Pipeline()
+	pipe.ZRem(ctx, r.namespace+"task-runners-active-ts", taskRunnerKey)
+	pipe.Del(ctx, taskRunnerKey)
+
+	_, err := pipe.Exec(ctx)
+	if err != nil && err != redis.Nil {
+		return err
+	}
+	return nil
+}
+
+func (r *redisStore) RequeueMessagesFromInProgressQueue(ctx context.Context, inprogressQueue, queue string) ([]string, error) {
+	var requeuedMsgs []string
+	for {
+		msg, err := r.client.BRPopLPush(ctx, r.getQueueName(inprogressQueue), r.getQueueName(queue), 1*time.Second).Result()
+
+		if err != nil {
+			if err == redis.Nil {
+				break
+			}
+			return requeuedMsgs, err
+		}
+		requeuedMsgs = append(requeuedMsgs, msg)
+	}
+	return requeuedMsgs, nil
+}
+
+func (r *redisStore) RemoveHeartbeat(ctx context.Context, heartbeatID string) error {
+	managerKey := r.getManagerKey(heartbeatID)
 
 	pipe := r.client.Pipeline()
-	pipe.Del(ctx, managerIdentity)
+	pipe.Del(ctx, managerKey)
 
-	workersKey := managerIdentity + sidekiqHeartbeatJobsKey
-	pipe.Del(ctx, workersKey)
+	workerKey := r.getWorkKey(managerKey)
+	pipe.Del(ctx, workerKey)
 
 	_, err := pipe.Exec(ctx)
 	if err != nil && err != redis.Nil {
@@ -294,4 +375,61 @@ func (r *redisStore) IncrementStats(ctx context.Context, metric string) error {
 
 func (r *redisStore) getQueueName(queue string) string {
 	return r.namespace + "queue:" + queue
+}
+
+func (r *redisStore) GetTime(ctx context.Context) (time.Time, error) {
+	return r.client.Time(ctx).Result()
+}
+
+func (r *redisStore) AddActiveCluster(ctx context.Context, clusterID string, clusterPriority float64) error {
+	now, err := r.GetTime(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.client.ZAdd(ctx, r.namespace+"clusters-active-ts", &redis.Z{Member: clusterID, Score: float64(now.Unix())}).Result()
+	if err != nil && err != redis.Nil {
+		return err
+	}
+	_, err = r.client.ZAdd(ctx, r.namespace+"clusters-active-priority", &redis.Z{Member: clusterID, Score: clusterPriority}).Result()
+	if err != nil && err != redis.Nil {
+		return err
+	}
+	return nil
+}
+
+func (r *redisStore) EvictExpiredClusters(ctx context.Context, expireTS int64) error {
+	evictClusterIDs, err := r.client.ZRangeByScore(ctx, r.namespace+"clusters-active-ts", &redis.ZRangeBy{Min: "-inf", Max: fmt.Sprintf("(%d", expireTS)}).Result()
+	if err != nil {
+		return err
+	}
+	if len(evictClusterIDs) == 0 {
+		return nil
+	}
+	pipe := r.client.Pipeline()
+	pipe.ZRem(ctx, r.namespace+"clusters-active-priority", evictClusterIDs)
+	pipe.ZRemRangeByScore(ctx, r.namespace+"clusters-active-ts", "-inf", fmt.Sprintf("(%d", expireTS))
+
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		return err
+	}
+	return nil
+}
+
+func (r *redisStore) GetActiveClusterIDs(ctx context.Context) ([]string, error) {
+	activeClusterIDs, err := r.client.ZRangeByScore(ctx, r.namespace+"clusters-active-ts", &redis.ZRangeBy{Min: "-inf", Max: "+inf", Offset: 0, Count: 1}).Result()
+	if err != nil && err != redis.Nil {
+		return nil, err
+	}
+	return activeClusterIDs, nil
+}
+
+func (r *redisStore) GetHighestPriorityActiveClusterID(ctx context.Context) (string, error) {
+	activeClusterIDs, err := r.client.ZRangeByScore(ctx, r.namespace+"clusters-active-priority", &redis.ZRangeBy{Min: "-inf", Max: "+inf", Offset: 0, Count: 1}).Result()
+	if err != nil && err != redis.Nil {
+		return "", err
+	}
+	if err == redis.Nil || len(activeClusterIDs) == 0 {
+		return "", nil
+	}
+	return activeClusterIDs[0], nil
 }

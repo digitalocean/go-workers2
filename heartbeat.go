@@ -5,10 +5,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/digitalocean/go-workers2/storage"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/digitalocean/go-workers2/storage"
 )
 
 type HeartbeatInfo struct {
@@ -40,6 +41,8 @@ type HeartbeatWorkerMsg struct {
 	EnqueuedAt int64  `json:"enqueued_at"`
 }
 
+type afterHeartbeatFunc func(heartbeat *storage.Heartbeat, updateActiveCluster *updateActiveClusterStatus, requeuedTaskRunnersStatus []requeuedTaskRunnerStatus)
+
 func GenerateProcessNonce() (string, error) {
 	bytes := make([]byte, 12)
 	if _, err := rand.Read(bytes); err != nil {
@@ -48,13 +51,14 @@ func GenerateProcessNonce() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-func (m *Manager) buildHeartbeat() (*storage.Heartbeat, error) {
+func (m *Manager) buildHeartbeat(heartbeatTime time.Time) (*storage.Heartbeat, error) {
 	queues := []string{}
-
-	msgs := map[string]string{}
 
 	concurrency := 0
 	busy := 0
+	pid := os.Getpid()
+
+	var taskRunnersInfo []storage.TaskRunnerInfo
 
 	for _, w := range m.workers {
 		queues = append(queues, w.queue)
@@ -62,43 +66,47 @@ func (m *Manager) buildHeartbeat() (*storage.Heartbeat, error) {
 		busy += len(w.inProgressMessages())
 
 		w.runnersLock.Lock()
-
 		for _, r := range w.runners {
+			taskRunnerInfo := storage.TaskRunnerInfo{
+				Pid:             pid,
+				Tid:             r.tid,
+				Queue:           w.queue,
+				InProgressQueue: w.inProgressQueue,
+			}
 			msg := r.inProgressMessage()
-			if msg == nil {
-				continue
-			}
+			if msg != nil {
+				workerMsg := &HeartbeatWorkerMsg{
+					Retry:      1,
+					Queue:      w.queue,
+					Backtrace:  false,
+					Class:      msg.Class(),
+					Args:       msg.Args(),
+					Jid:        msg.Jid(),
+					CreatedAt:  msg.startedAt, // not actually started at
+					EnqueuedAt: heartbeatTime.Unix(),
+				}
 
-			workerMsg := &HeartbeatWorkerMsg{
-				Retry:      1,
-				Queue:      w.queue,
-				Backtrace:  false,
-				Class:      msg.Class(),
-				Args:       msg.Args(),
-				Jid:        msg.Jid(),
-				CreatedAt:  msg.startedAt, // not actually started at
-				EnqueuedAt: time.Now().UTC().Unix(),
-			}
+				jsonMsg, err := json.Marshal(workerMsg)
+				if err != nil {
+					return nil, err
+				}
 
-			jsonMsg, err := json.Marshal(workerMsg)
-			if err != nil {
-				return nil, err
-			}
+				msgWrapper := &HeartbeatWorkerMsgWrapper{
+					Tid:     r.tid,
+					Queue:   w.queue,
+					Payload: string(jsonMsg),
+					RunAt:   msg.startedAt,
+				}
 
-			wrapper := &HeartbeatWorkerMsgWrapper{
-				Queue:   w.queue,
-				Payload: string(jsonMsg),
-				RunAt:   msg.startedAt,
-			}
+				jsonMsgWrapper, err := json.Marshal(msgWrapper)
+				if err != nil {
+					return nil, err
+				}
 
-			jsonWrapper, err := json.Marshal(wrapper)
-			if err != nil {
-				return nil, err
+				taskRunnerInfo.WorkerMsg = string(jsonMsgWrapper)
 			}
-
-			msgs[r.tid] = string(jsonWrapper)
+			taskRunnersInfo = append(taskRunnersInfo, taskRunnerInfo)
 		}
-
 		w.runnersLock.Unlock()
 	}
 
@@ -106,7 +114,6 @@ func (m *Manager) buildHeartbeat() (*storage.Heartbeat, error) {
 	if err != nil {
 		return nil, err
 	}
-	pid := os.Getpid()
 
 	if m.opts.ManagerDisplayName != "" {
 		hostname = hostname + ":" + m.opts.ManagerDisplayName
@@ -118,7 +125,10 @@ func (m *Manager) buildHeartbeat() (*storage.Heartbeat, error) {
 		tag = strings.ReplaceAll(m.opts.Namespace, ":", "")
 	}
 
-	identity := fmt.Sprintf("%s:%d:%s", hostname, pid, m.processNonce)
+	heartbeatID, err := m.getHeartbeatID()
+	if err != nil {
+		return nil, err
+	}
 
 	heartbeatInfo := &HeartbeatInfo{
 		Hostname:    hostname,
@@ -128,7 +138,7 @@ func (m *Manager) buildHeartbeat() (*storage.Heartbeat, error) {
 		Concurrency: concurrency,
 		Queues:      queues,
 		Labels:      []string{},
-		Identity:    identity,
+		Identity:    heartbeatID,
 	}
 	heartbeatInfoJson, err := json.Marshal(heartbeatInfo)
 
@@ -137,15 +147,25 @@ func (m *Manager) buildHeartbeat() (*storage.Heartbeat, error) {
 	}
 
 	heartbeat := &storage.Heartbeat{
-		Identity:       identity,
-		Beat:           time.Now(),
-		Quiet:          false,
-		Busy:           busy,
-		RSS:            0, // rss is not currently supported
-		Info:           string(heartbeatInfoJson),
-		Pid:            pid,
-		WorkerMessages: msgs,
+		Identity:        heartbeatID,
+		Beat:            heartbeatTime,
+		Quiet:           false,
+		Busy:            busy,
+		RSS:             0, // rss is not currently supported
+		Info:            string(heartbeatInfoJson),
+		Pid:             pid,
+		ActiveManager:   m.IsActive(),
+		TaskRunnersInfo: taskRunnersInfo,
 	}
 
 	return heartbeat, nil
+}
+
+func (m *Manager) getHeartbeatID() (string, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "", err
+	}
+	pid := os.Getpid()
+	return fmt.Sprintf("%s:%d:%s", hostname, pid, m.processNonce), nil
 }

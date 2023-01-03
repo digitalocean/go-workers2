@@ -12,6 +12,14 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
+const (
+	defaultHeartbeatInterval                = 5 * time.Second
+	defaultHeartbeatTaskRunnerEvictInterval = 60 * time.Second
+	defaultHeartbeatClusterEvictInterval    = 60 * time.Second
+
+	defaultHeartbeatManagerTTL = 60 * time.Second
+)
+
 // Options contains the set of configuration options for a manager and/or producer
 type Options struct {
 	ProcessID    string
@@ -30,13 +38,32 @@ type Options struct {
 	// Optional display name used when displaying manager stats
 	ManagerDisplayName string
 
-	Heartbeat bool
+	// Define Heartbeat to enable heartbeat
+	Heartbeat *HeartbeatOptions
+	// Define ActivePassiveFailover to enable active passive failover
+	ActivePassiveFailover *ActivePassFailoverOptions
 
 	// Log
 	Logger *log.Logger
 
 	client *redis.Client
 	store  storage.Store
+}
+
+type HeartbeatOptions struct {
+	// Optional heartbeat interval config
+	Interval time.Duration
+
+	// Optional redis eviction intervals and ttl config
+	TaskRunnerEvictInterval time.Duration
+	ClusterEvictInterval    time.Duration
+	ManagerTTL              time.Duration
+}
+
+// ActivePassFailoverOptions are config options if active/passive failover of clusters of managers
+type ActivePassFailoverOptions struct {
+	ClusterID       string
+	ClusterPriority float64
 }
 
 func processOptions(options Options) (Options, error) {
@@ -84,6 +111,24 @@ func processOptions(options Options) (Options, error) {
 
 	redisStore := storage.NewRedisStore(options.Namespace, options.client, options.Logger)
 	options.store = redisStore
+
+	if options.Heartbeat != nil {
+		if options.Heartbeat.Interval <= 0 {
+			options.Heartbeat.Interval = defaultHeartbeatInterval
+		}
+		if options.Heartbeat.TaskRunnerEvictInterval <= 0 {
+			options.Heartbeat.TaskRunnerEvictInterval = defaultHeartbeatTaskRunnerEvictInterval
+		}
+		if options.Heartbeat.ClusterEvictInterval <= 0 {
+			options.Heartbeat.ClusterEvictInterval = defaultHeartbeatClusterEvictInterval
+		}
+		if options.Heartbeat.ManagerTTL <= 0 {
+			options.Heartbeat.ManagerTTL = defaultHeartbeatManagerTTL
+		}
+		if options.ActivePassiveFailover != nil && options.Heartbeat == nil {
+			return Options{}, errors.New("Active/passive failover requires heartbeat to be enabled")
+		}
+	}
 
 	return options, nil
 }
