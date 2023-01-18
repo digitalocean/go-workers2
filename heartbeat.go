@@ -15,7 +15,7 @@ import (
 type HeartbeatInfo struct {
 	Hostname    string   `json:"hostname"`
 	StartedAt   int64    `json:"started_at"`
-	Pid         int      `json:"pid"`
+	Pid         int      `json:"Pid"`
 	Tag         string   `json:"tag"`
 	Concurrency int      `json:"concurrency"`
 	Queues      []string `json:"queues"`
@@ -24,15 +24,15 @@ type HeartbeatInfo struct {
 }
 
 type HeartbeatWorkerMsgWrapper struct {
-	Queue   string `json:"queue"`
+	Queue   string `json:"Queue"`
 	Payload string `json:"payload"`
 	RunAt   int64  `json:"run_at"`
-	Tid     string `json:"tid"`
+	Tid     string `json:"Tid"`
 }
 
 type HeartbeatWorkerMsg struct {
 	Retry      int    `json:"retry"`
-	Queue      string `json:"queue"`
+	Queue      string `json:"Queue"`
 	Backtrace  bool   `json:"backtrace"`
 	Class      string `json:"class"`
 	Args       *Args  `json:"args"`
@@ -41,7 +41,7 @@ type HeartbeatWorkerMsg struct {
 	EnqueuedAt int64  `json:"enqueued_at"`
 }
 
-type afterHeartbeatFunc func(heartbeat *storage.Heartbeat, updateActiveCluster *updateActiveClusterStatus, requeuedTaskRunnersStatus []requeuedTaskRunnerStatus)
+type AfterHeartbeatFunc func(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*storage.StaleMessageUpdate) error
 
 func GenerateProcessNonce() (string, error) {
 	bytes := make([]byte, 12)
@@ -51,14 +51,14 @@ func GenerateProcessNonce() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-func (m *Manager) buildHeartbeat(heartbeatTime time.Time) (*storage.Heartbeat, error) {
+func (m *Manager) buildHeartbeat(heartbeatTime time.Time, ttl time.Duration) (*storage.Heartbeat, error) {
 	queues := []string{}
 
 	concurrency := 0
 	busy := 0
 	pid := os.Getpid()
 
-	var taskRunnersInfo []storage.TaskRunnerInfo
+	var workerHeartbeats []storage.WorkerHeartbeat
 
 	for _, w := range m.workers {
 		queues = append(queues, w.queue)
@@ -67,7 +67,7 @@ func (m *Manager) buildHeartbeat(heartbeatTime time.Time) (*storage.Heartbeat, e
 
 		w.runnersLock.Lock()
 		for _, r := range w.runners {
-			taskRunnerInfo := storage.TaskRunnerInfo{
+			workerHeartbeat := storage.WorkerHeartbeat{
 				Pid:             pid,
 				Tid:             r.tid,
 				Queue:           w.queue,
@@ -103,9 +103,9 @@ func (m *Manager) buildHeartbeat(heartbeatTime time.Time) (*storage.Heartbeat, e
 					return nil, err
 				}
 
-				taskRunnerInfo.WorkerMsg = string(jsonMsgWrapper)
+				workerHeartbeat.WorkerMsg = string(jsonMsgWrapper)
 			}
-			taskRunnersInfo = append(taskRunnersInfo, taskRunnerInfo)
+			workerHeartbeats = append(workerHeartbeats, workerHeartbeat)
 		}
 		w.runnersLock.Unlock()
 	}
@@ -147,15 +147,16 @@ func (m *Manager) buildHeartbeat(heartbeatTime time.Time) (*storage.Heartbeat, e
 	}
 
 	heartbeat := &storage.Heartbeat{
-		Identity:        heartbeatID,
-		Beat:            heartbeatTime,
-		Quiet:           false,
-		Busy:            busy,
-		RSS:             0, // rss is not currently supported
-		Info:            string(heartbeatInfoJson),
-		Pid:             pid,
-		ActiveManager:   m.IsActive(),
-		TaskRunnersInfo: taskRunnersInfo,
+		Identity:         heartbeatID,
+		Beat:             heartbeatTime,
+		Quiet:            false,
+		Busy:             busy,
+		RSS:              0, // rss is not currently supported
+		Info:             string(heartbeatInfoJson),
+		Pid:              pid,
+		ActiveManager:    m.IsActive(),
+		WorkerHeartbeats: workerHeartbeats,
+		Ttl:              ttl,
 	}
 
 	return heartbeat, nil

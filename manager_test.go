@@ -193,8 +193,8 @@ func TestManager_Run(t *testing.T) {
 	assert.NoError(t, err)
 	prod := mgr.Producer()
 
-	q1cc := newCallCounter()
-	q2cc := newCallCounter()
+	q1cc := NewCallCounter()
+	q2cc := NewCallCounter()
 	mgr.AddWorker("queue1", 1, q1cc.F, NopMiddleware)
 	mgr.AddWorker("queue2", 2, q2cc.F, NopMiddleware)
 
@@ -260,8 +260,8 @@ func TestManager_inProgressMessages(t *testing.T) {
 	prod, err := NewProducer(opts)
 	assert.NoError(t, err)
 
-	q1cc := newCallCounter()
-	q2cc := newCallCounter()
+	q1cc := NewCallCounter()
+	q2cc := NewCallCounter()
 	mgr.AddWorker("queue1", 1, q1cc.F, NopMiddleware)
 	mgr.AddWorker("queue2", 2, q2cc.F, NopMiddleware)
 
@@ -341,11 +341,11 @@ func TestManager_inProgressMessages(t *testing.T) {
 
 func TestManager_InactiveManagerNoMessageProcessing(t *testing.T) {
 	namespace := "mgrruntest"
-	opts := testHeartbeatOptionsWithProcess(namespace, "1")
+	opts := SetupDefaultTestOptionsWithHeartbeat(namespace, "1")
 	mgr, err := newTestManager(opts, true)
 	assert.NoError(t, err)
 	mgr.active = false
-	q1cc := newCallCounter()
+	q1cc := NewCallCounter()
 	mgr.AddWorker("queue1", 1, q1cc.F, NopMiddleware)
 
 	var wg sync.WaitGroup
@@ -368,31 +368,31 @@ func TestManager_InactiveManagerNoMessageProcessing(t *testing.T) {
 	wg.Wait()
 }
 
-func TestManager_Run_HeartbeatHandlesExpiredInProgressMessages(t *testing.T) {
+func TestManager_Run_HeartbeatHandlesStaleInProgressMessages(t *testing.T) {
 	namespace := "mgrruntest"
-	opts1 := testHeartbeatOptionsWithProcess(namespace, "1")
+	opts1 := SetupDefaultTestOptionsWithHeartbeat(namespace, "1")
 	mgr1, err := newTestManager(opts1, true)
 	assert.NoError(t, err)
 	prod1 := mgr1.Producer()
 
-	mgr1qcc := newCallCounter()
+	mgr1qcc := NewCallCounter()
 	mgr1.AddWorker("testqueue", 3, mgr1qcc.F, NopMiddleware)
 
 	assertMgr1HeartbeatTimeoutDuration := mgr1.opts.Heartbeat.Interval * 3
 	pollMgr1StartTime, err := mgr1.opts.store.GetTime(context.Background())
 	assert.NoError(t, err)
 	assertMgr1Heartbeat := false
-	mgr1.AddAfterHeartbeatHooks(mgr1.debugLogHeartbeat)
-	mgr1.AddAfterHeartbeatHooks(func(heartbeat *storage.Heartbeat, updateActiveCluster *updateActiveClusterStatus, requeuedTaskRunnersStatus []requeuedTaskRunnerStatus) {
+	mgr1.AddAfterHeartbeatHooks(func(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*storage.StaleMessageUpdate) error {
 		if !assertMgr1Heartbeat && heartbeat.Beat.Sub(pollMgr1StartTime) > assertMgr1HeartbeatTimeoutDuration {
 			assert.Fail(t, "mgr1 heartbeat timed out")
 		}
-		if len(heartbeat.TaskRunnersInfo) > 0 {
+		if len(heartbeat.WorkerHeartbeats) > 0 {
 			assertMgr1Heartbeat = true
 		}
-		if len(requeuedTaskRunnersStatus) > 0 {
+		if len(staleMessageUpdates) > 0 {
 			assert.Fail(t, "expiring in manager 1")
 		}
+		return nil
 	})
 
 	var wg1 sync.WaitGroup
@@ -417,41 +417,40 @@ func TestManager_Run_HeartbeatHandlesExpiredInProgressMessages(t *testing.T) {
 	mgr1qcc.ackSyncCh <- true
 	mgr1qcc.ackSyncCh <- true
 
-	// 1 left in in-progress queue, wait for heartbeat and stop manager
+	// 1 left in in-progress Queue, wait for heartbeat and stop manager
 	for !assertMgr1Heartbeat {
 		time.Sleep(time.Millisecond)
 	}
 	mgr1.Stop()
 
 	// we update processID to guarantee using different in-progress queues from mgr1
-	opts2 := testHeartbeatOptionsWithProcess(namespace, "2")
+	opts2 := SetupDefaultTestOptionsWithHeartbeat(namespace, "2")
 	mgr2, err := newTestManager(opts2, false)
 	assert.NoError(t, err)
-	mgr2qcc := newCallCounter()
+	mgr2qcc := NewCallCounter()
 	// demonstrate implementation does not care for different concurrency levels by changing concurrency from 3 to 2
 	mgr2.AddWorker("testqueue", 2, mgr2qcc.F, NopMiddleware)
 	pollMgr2StartTime, err := mgr2.opts.store.GetTime(context.Background())
 	assert.NoError(t, err)
 	assertMessageRequeued := make(chan bool)
-	mgr2.AddAfterHeartbeatHooks(mgr2.debugLogHeartbeat)
-	mgr2.AddAfterHeartbeatHooks(func(heartbeat *storage.Heartbeat, updateActiveCluster *updateActiveClusterStatus, requeuedTaskRunnersStatus []requeuedTaskRunnerStatus) {
-		if heartbeat.Beat.Sub(pollMgr2StartTime) > mgr2.opts.Heartbeat.TaskRunnerEvictInterval*2 {
+	mgr2.AddAfterHeartbeatHooks(func(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*storage.StaleMessageUpdate) error {
+		if heartbeat.Beat.Sub(pollMgr2StartTime) > mgr2.opts.Heartbeat.HeartbeatTTL*2 {
 			assert.Fail(t, "mgr2 timed out polling for requeued stale task runner")
 			assertMessageRequeued <- false
 		}
-		if len(requeuedTaskRunnersStatus) > 0 {
-			for _, requeuedTaskRunnerStatus := range requeuedTaskRunnersStatus {
-				assert.Equal(t, "testqueue", requeuedTaskRunnerStatus.queue)
-				assert.Contains(t, requeuedTaskRunnerStatus.inprogressQueue, "testqueue")
-				assert.Contains(t, requeuedTaskRunnerStatus.inprogressQueue, "inprogress")
-				if len(requeuedTaskRunnerStatus.requeuedMsgs) > 0 {
+		if len(staleMessageUpdates) > 0 {
+			for _, staleMessageUpdate := range staleMessageUpdates {
+				assert.Equal(t, "testqueue", staleMessageUpdate.Queue)
+				assert.Contains(t, staleMessageUpdate.InprogressQueue, "testqueue")
+				assert.Contains(t, staleMessageUpdate.InprogressQueue, "inprogress")
+				if len(staleMessageUpdate.RequeuedMsgs) > 0 {
 					// check if it has requeued messages, as heartbeat may have expired the other 2 task runners
 					// without messages instead
-					assert.Equal(t, 1, len(requeuedTaskRunnersStatus[0].requeuedMsgs))
+					assert.Equal(t, 1, len(staleMessageUpdates[0].RequeuedMsgs))
 					<-mgr2qcc.syncCh
 					ipm := mgr2.inProgressMessages()
 					assert.Contains(t, ipm, "testqueue")
-					requeuedMsg, err := NewMsg(requeuedTaskRunnersStatus[0].requeuedMsgs[0])
+					requeuedMsg, err := NewMsg(staleMessageUpdates[0].RequeuedMsgs[0])
 					assert.NoError(t, err)
 					// verify requeued message from manager 1 is now in progress of being processed by manager 2
 					assert.Equal(t, requeuedMsg.Jid(), ipm["testqueue"][0].Jid())
@@ -460,6 +459,7 @@ func TestManager_Run_HeartbeatHandlesExpiredInProgressMessages(t *testing.T) {
 				}
 			}
 		}
+		return nil
 	})
 	var wg2 sync.WaitGroup
 	go func() {
@@ -477,77 +477,5 @@ func TestManager_Run_HeartbeatHandlesExpiredInProgressMessages(t *testing.T) {
 
 	mgr2.Stop()
 	wg1.Wait()
-	wg2.Wait()
-}
-
-func TestManager_Run_HeartbeatHandlesActivatingClusterManager(t *testing.T) {
-	namespace := "mgrruntest"
-	// mgr1 is higher priority than mgr2
-	opts1 := testHeartbeatOptionsWithCluster(namespace, "process1", "cluster1", 1)
-	mgr1, err := newTestManager(opts1, true)
-	assert.NoError(t, err)
-
-	mgr1qcc := newCallCounter()
-	mgr1.AddWorker("testqueue", 3, mgr1qcc.F, NopMiddleware)
-	assertedMgr1Heartbeat := false
-	assertMgr1Heartbeat := make(chan bool)
-	mgr1.AddAfterHeartbeatHooks(mgr1.debugLogHeartbeat)
-	//var mgr1HeartbeatTime time.Time
-	mgr1.AddAfterHeartbeatHooks(func(heartbeat *storage.Heartbeat, updateActiveCluster *updateActiveClusterStatus, requeuedTaskRunnersStatus []requeuedTaskRunnerStatus) {
-		if !assertedMgr1Heartbeat {
-			assertMgr1Heartbeat <- true
-		}
-	})
-
-	var wg1 sync.WaitGroup
-	go func() {
-		wg1.Add(1)
-		mgr1.Run()
-		wg1.Done()
-	}()
-
-	opts2 := testHeartbeatOptionsWithCluster(namespace, "process2", "cluster2", 99)
-	mgr2, err := newTestManager(opts2, false)
-	assert.NoError(t, err)
-
-	assertedMgr1Heartbeat = <-assertMgr1Heartbeat
-
-	mgr2qcc := newCallCounter()
-	mgr2.AddWorker("testqueue", 2, mgr2qcc.F, NopMiddleware)
-	assertMgr2Heartbeat := make(chan bool)
-	assertCluster2Activated := make(chan bool)
-	mgr2.AddAfterHeartbeatHooks(mgr2.debugLogHeartbeat)
-	assertedMgr2Heartbeat := false
-	mgr2.AddAfterHeartbeatHooks(func(heartbeat *storage.Heartbeat, updateActiveCluster *updateActiveClusterStatus, requeuedTaskRunnersStatus []requeuedTaskRunnerStatus) {
-		if !assertedMgr2Heartbeat {
-			assertMgr2Heartbeat <- true
-		}
-		if updateActiveCluster.activateManager {
-			assertCluster2Activated <- true
-		}
-	})
-
-	var wg2 sync.WaitGroup
-	go func() {
-		wg2.Add(1)
-		mgr2.Run()
-		wg2.Done()
-	}()
-
-	assertedMgr2Heartbeat = <-assertMgr2Heartbeat
-	// assert manager 1, which belongs to higher priority cluster (lower priority number), is active
-	assert.True(t, mgr1.IsActive())
-	assert.False(t, mgr2.IsActive())
-
-	mgr1.Stop()
-	wg1.Wait()
-
-	// cluster2 will activate once cluster1 is no longer considered active and is evicted
-	<-assertCluster2Activated
-
-	// after manager1 which belongs to cluster1 stopped for longer than cluster evict interval,
-	// manager2 which belongs to cluster2 is now active
-	assert.True(t, mgr2.IsActive())
-	mgr2.Stop()
 	wg2.Wait()
 }

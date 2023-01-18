@@ -14,7 +14,7 @@ func buildFetch(queue string, opts Options) Fetcher {
 }
 
 func TestFetchConfig(t *testing.T) {
-	opts, err := setupTestOptions()
+	opts, err := SetupDefaultTestOptions()
 	assert.NoError(t, err)
 	fetch := buildFetch("fetchQueue1", opts)
 	assert.Equal(t, "fetchQueue1", fetch.Queue())
@@ -24,7 +24,7 @@ func TestFetchConfig(t *testing.T) {
 func TestGetMessagesToChannel(t *testing.T) {
 	ctx := context.Background()
 
-	opts, err := setupTestOptions()
+	opts, err := SetupDefaultTestOptions()
 	assert.NoError(t, err)
 
 	message, _ := NewMsg("{\"foo\":\"bar\"}")
@@ -49,7 +49,7 @@ func TestGetMessagesToChannel(t *testing.T) {
 func TestMoveProgressMessageToPrivateQueue(t *testing.T) {
 	ctx := context.Background()
 
-	opts, err := setupTestOptions()
+	opts, err := SetupDefaultTestOptions()
 	assert.NoError(t, err)
 	message, _ := NewMsg("{\"foo\":\"bar\"}")
 
@@ -76,7 +76,7 @@ func TestMoveProgressMessageToPrivateQueue(t *testing.T) {
 func TestRemoveProgressMessageWhenAcked(t *testing.T) {
 	ctx := context.Background()
 
-	opts, err := setupTestOptions()
+	opts, err := SetupDefaultTestOptions()
 	assert.NoError(t, err)
 	message, _ := NewMsg("{\"foo\":\"bar\"}")
 
@@ -101,7 +101,7 @@ func TestRemoveProgressMessageWhenAcked(t *testing.T) {
 func TestRemoveProgressMessageDifferentSerialization(t *testing.T) {
 	ctx := context.Background()
 
-	opts, err := setupTestOptions()
+	opts, err := SetupDefaultTestOptions()
 	assert.NoError(t, err)
 
 	json := "{\"foo\":\"bar\",\"args\":[]}"
@@ -130,7 +130,7 @@ func TestRemoveProgressMessageDifferentSerialization(t *testing.T) {
 func TestRetryInprogressMessages(t *testing.T) {
 	ctx := context.Background()
 
-	opts, err := setupTestOptions()
+	opts, err := SetupDefaultTestOptions()
 	assert.NoError(t, err)
 
 	message, _ := NewMsg("{\"foo\":\"bar\"}")

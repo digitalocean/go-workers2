@@ -48,11 +48,12 @@ type Heartbeat struct {
 	Pid           int
 	ActiveManager bool
 
-	TaskRunnersInfo []TaskRunnerInfo
-	*ClusterInfo
+	Ttl time.Duration
+
+	WorkerHeartbeats []WorkerHeartbeat
 }
 
-type TaskRunnerInfo struct {
+type WorkerHeartbeat struct {
 	Pid             int
 	Tid             string
 	Queue           string
@@ -60,9 +61,10 @@ type TaskRunnerInfo struct {
 	WorkerMsg       string
 }
 
-type ClusterInfo struct {
-	ClusterID       string
-	ClusterPriority int
+type StaleMessageUpdate struct {
+	Queue           string
+	InprogressQueue string
+	RequeuedMsgs    []string
 }
 
 // Store is the interface for storing and retrieving data
@@ -75,6 +77,7 @@ type Store interface {
 	EnqueueMessage(ctx context.Context, queue string, priority float64, message string) error
 	EnqueueMessageNow(ctx context.Context, queue string, message string) error
 	DequeueMessage(ctx context.Context, queue string, inprogressQueue string, timeout time.Duration) (string, error)
+	RequeueMessagesFromInProgressQueue(ctx context.Context, inprogressQueue, queue string) ([]string, error)
 
 	// Special purpose queue operations
 	EnqueueScheduledMessage(ctx context.Context, priority float64, message string) error
@@ -88,24 +91,14 @@ type Store interface {
 	GetAllStats(ctx context.Context, queues []string) (*Stats, error)
 
 	// Heartbeat
-	SendHeartbeat(ctx context.Context, heartbeat *Heartbeat, heartbeatManagerTTL time.Duration) error
+	SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) error
 	RemoveHeartbeat(ctx context.Context, heartbeatID string) error
-
-	// Worker manager cluster operations
-	AddActiveCluster(ctx context.Context, clusterID string, clusterPriority float64) error
-	EvictExpiredClusters(ctx context.Context, expireTS int64) error
-	GetActiveClusterIDs(ctx context.Context) ([]string, error)
-	GetHighestPriorityActiveClusterID(ctx context.Context) (string, error)
-
-	// Task runner expiration operations
-	GetExpiredTaskRunnerKeys(ctx context.Context, expireTS int64) ([]string, error)
-	GetTaskRunnerInfo(ctx context.Context, taskRunnerKey string) (TaskRunnerInfo, error)
-	EvictTaskRunnerInfo(ctx context.Context, pid int, tid string) error
-	RequeueMessagesFromInProgressQueue(ctx context.Context, inprogressQueue, queue string) ([]string, error)
+	HandleExpiredHeartbeatIdentities(ctx context.Context) ([]string, error)
+	HandleExpiredWorkerHeartbeats(ctx context.Context, expireTS int64) ([]*StaleMessageUpdate, error)
 
 	// Retries
 	GetAllRetries(ctx context.Context) (*Retries, error)
 
-	// Misc
+	// Storage Server Time
 	GetTime(ctx context.Context) (time.Time, error)
 }

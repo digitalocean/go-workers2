@@ -32,7 +32,7 @@ func (d dummyFetcher) Messages() chan *Msg     { return d.messages() }
 func (d dummyFetcher) Close()                  { d.close() }
 func (d dummyFetcher) Closed() bool            { return d.closed() }
 
-func (d dummyFetcher) Active(active bool) {
+func (d dummyFetcher) SetActive(active bool) {
 	d.lock.Lock()
 	defer d.lock.Unlock()
 	d.isActive = active
@@ -46,7 +46,7 @@ func (d dummyFetcher) IsActive() bool {
 func TestNewWorker(t *testing.T) {
 	testLogger := log.New(os.Stdout, "test-go-workers2: ", log.Ldate|log.Lmicroseconds)
 
-	cc := newCallCounter()
+	cc := NewCallCounter()
 	w := newWorker(testLogger, "q", 0, cc.F)
 	assert.Equal(t, "q", w.queue)
 	assert.Equal(t, 1, w.concurrency)
@@ -92,7 +92,7 @@ func TestWorker(t *testing.T) {
 		},
 	}
 
-	cc := newCallCounter()
+	cc := NewCallCounter()
 
 	w := newWorker(testLogger, "q", 2, cc.F)
 
@@ -185,7 +185,7 @@ func TestWorkerProcessesAndAcksMessages(t *testing.T) {
 		},
 	}
 
-	cc := newCallCounter()
+	cc := NewCallCounter()
 	w := newWorker(testLogger, "q", 1, cc.F)
 
 	var wg sync.WaitGroup

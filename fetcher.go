@@ -17,7 +17,7 @@ type Fetcher interface {
 	InProgressQueue() string
 	Fetch()
 	Acknowledge(*Msg)
-	Active(bool)
+	SetActive(bool)
 	IsActive() bool
 	Ready() chan bool
 	Messages() chan *Msg
@@ -141,7 +141,7 @@ func (f *simpleFetcher) Messages() chan *Msg {
 	return f.messages
 }
 
-func (f *simpleFetcher) Active(active bool) {
+func (f *simpleFetcher) SetActive(active bool) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	f.isActive = active

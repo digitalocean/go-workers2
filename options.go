@@ -13,11 +13,9 @@ import (
 )
 
 const (
-	defaultHeartbeatInterval                = 5 * time.Second
-	defaultHeartbeatTaskRunnerEvictInterval = 60 * time.Second
-	defaultHeartbeatClusterEvictInterval    = 60 * time.Second
+	defaultHeartbeatInterval = 5 * time.Second
 
-	defaultHeartbeatManagerTTL = 60 * time.Second
+	defaultHeartbeatTTL = 60 * time.Second
 )
 
 // Options contains the set of configuration options for a manager and/or producer
@@ -36,12 +34,11 @@ type Options struct {
 	RedisTLSConfig  *tls.Config
 
 	// Optional display name used when displaying manager stats
-	ManagerDisplayName string
+	ManagerDisplayName   string
+	ManagerStartInactive bool
 
 	// Define Heartbeat to enable heartbeat
 	Heartbeat *HeartbeatOptions
-	// Define ActivePassiveFailover to enable active passive failover
-	ActivePassiveFailover *ActivePassFailoverOptions
 
 	// Log
 	Logger *log.Logger
@@ -50,20 +47,16 @@ type Options struct {
 	store  storage.Store
 }
 
+func (o *Options) Client() *redis.Client {
+	return o.client
+}
+
 type HeartbeatOptions struct {
 	// Optional heartbeat interval config
 	Interval time.Duration
 
-	// Optional redis eviction intervals and ttl config
-	TaskRunnerEvictInterval time.Duration
-	ClusterEvictInterval    time.Duration
-	ManagerTTL              time.Duration
-}
-
-// ActivePassFailoverOptions are config options if active/passive failover of clusters of managers
-type ActivePassFailoverOptions struct {
-	ClusterID       string
-	ClusterPriority float64
+	// redis eviction ttl config
+	HeartbeatTTL time.Duration
 }
 
 func processOptions(options Options) (Options, error) {
@@ -116,17 +109,8 @@ func processOptions(options Options) (Options, error) {
 		if options.Heartbeat.Interval <= 0 {
 			options.Heartbeat.Interval = defaultHeartbeatInterval
 		}
-		if options.Heartbeat.TaskRunnerEvictInterval <= 0 {
-			options.Heartbeat.TaskRunnerEvictInterval = defaultHeartbeatTaskRunnerEvictInterval
-		}
-		if options.Heartbeat.ClusterEvictInterval <= 0 {
-			options.Heartbeat.ClusterEvictInterval = defaultHeartbeatClusterEvictInterval
-		}
-		if options.Heartbeat.ManagerTTL <= 0 {
-			options.Heartbeat.ManagerTTL = defaultHeartbeatManagerTTL
-		}
-		if options.ActivePassiveFailover != nil && options.Heartbeat == nil {
-			return Options{}, errors.New("Active/passive failover requires heartbeat to be enabled")
+		if options.Heartbeat.HeartbeatTTL <= 0 {
+			options.Heartbeat.HeartbeatTTL = defaultHeartbeatTTL
 		}
 	}
 

@@ -37,7 +37,7 @@ func TestRetries_NotEmpty(t *testing.T) {
 	ctx := context.Background()
 
 	// test API replies with registered workers
-	opts, err := setupTestOptionsWithNamespace("prod")
+	opts, err := SetupDefaultTestOptionsWithNamespace("retries")
 	assert.NoError(t, err)
 
 	mgr := &Manager{opts: opts}

@@ -2,7 +2,6 @@ package workers
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -29,25 +28,19 @@ type Manager struct {
 	processNonce     string
 	heartbeatChannel chan bool
 
-	beforeStartHooks    []func()
-	duringDrainHooks    []func()
-	afterHeartbeatHooks []afterHeartbeatFunc
+	beforeStartHooks       []func()
+	duringDrainHooks       []func()
+	afterHeartbeatHooks    []AfterHeartbeatFunc
+	afterActiveChangeHooks []AfterActiveChangeFunc
 
 	retriesExhaustedHandlers []RetriesExhaustedFunc
 }
 
-type updateActiveClusterStatus struct {
-	activeClusterID   string
-	activateManager   bool
-	deactivateManager bool
-}
+type AfterActiveChangeFunc func(manager *Manager, activateManager, deactivateManager bool)
 
-type requeuedTaskRunnerStatus struct {
-	pid             int
-	tid             string
-	queue           string
-	inprogressQueue string
-	requeuedMsgs    []string
+type UpdateActiveManager struct {
+	ActivateManager   bool
+	DeactivateManager bool
 }
 
 // NewManager creates a new manager with provide options
@@ -57,6 +50,11 @@ func NewManager(options Options) (*Manager, error) {
 		return nil, err
 	}
 	return newManager(options)
+}
+
+// GetRedisClient returns the Redis client used by the manager
+func (m *Manager) GetRedisClient() *redis.Client {
+	return m.opts.client
 }
 
 // NewManagerWithRedisClient creates a new manager with provide options and pre-configured Redis client
@@ -73,24 +71,14 @@ func newManager(processedOptions Options) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	active := false
-	// if no active/passive failover is configured, manager is initialized as active for backwards compatibility
-	if processedOptions.ActivePassiveFailover == nil {
-		active = true
-	}
 
 	return &Manager{
 		uuid:         uuid.New().String(),
 		logger:       processedOptions.Logger,
 		opts:         processedOptions,
 		processNonce: processNonce,
-		active:       active,
+		active:       !processedOptions.ManagerStartInactive,
 	}, nil
-}
-
-// GetRedisClient returns the Redis client used by the manager
-func (m *Manager) GetRedisClient() *redis.Client {
-	return m.opts.client
 }
 
 // AddWorker adds a new job processing worker
@@ -121,10 +109,16 @@ func (m *Manager) AddDuringDrainHooks(hooks ...func()) {
 	m.duringDrainHooks = append(m.duringDrainHooks, hooks...)
 }
 
-func (m *Manager) AddAfterHeartbeatHooks(hooks ...afterHeartbeatFunc) {
+func (m *Manager) AddAfterHeartbeatHooks(hooks ...AfterHeartbeatFunc) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.afterHeartbeatHooks = append(m.afterHeartbeatHooks, hooks...)
+}
+
+func (m *Manager) AddAfterActiveChangeHooks(hooks ...AfterActiveChangeFunc) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.afterActiveChangeHooks = append(m.afterActiveChangeHooks, hooks...)
 }
 
 // SetRetriesExhaustedHandlers sets function(s) that will be sequentially executed when retries are exhausted for a job.
@@ -171,7 +165,7 @@ func (m *Manager) Run() {
 	for i := range m.workers {
 		w := m.workers[i]
 		go func() {
-			fetcher := newSimpleFetcher(w.queue, m.opts, m.active)
+			fetcher := newSimpleFetcher(w.queue, *m.Opts(), m.IsActive())
 			w.start(fetcher)
 			wg.Done()
 		}()
@@ -215,6 +209,10 @@ func (m *Manager) Stop() {
 		h()
 	}
 	m.stopSignalHandler()
+}
+
+func (m *Manager) Opts() *Options {
+	return &m.opts
 }
 
 func (m *Manager) inProgressMessages() map[string][]*Msg {
@@ -316,18 +314,23 @@ func (m *Manager) startHeartbeat() error {
 				m.logger.Println("ERR: Failed to send heartbeat", err)
 				return err
 			}
-			updateActiveClusterStatus, err := m.updateActiveCluster(heartbeatTime)
+			expireTS := heartbeatTime.Add(-m.opts.Heartbeat.HeartbeatTTL).Unix()
+			staleMessageUpdates, err := m.opts.store.HandleExpiredWorkerHeartbeats(context.Background(), expireTS)
 			if err != nil {
-				m.logger.Println("ERR: Failed to update active cluster", err)
+				m.logger.Println("ERR: Failed to handle expired workers", err)
 				return err
 			}
-			requeuedTaskRunnersStatus, err := m.handleExpiredTaskRunners(heartbeatTime)
+			_, err = m.opts.store.HandleExpiredHeartbeatIdentities(context.Background())
 			if err != nil {
-				m.logger.Println("ERR: Failed to handle expired task runners", err)
+				m.logger.Println("ERR: error expiring heartbeat identities", err)
 				return err
 			}
 			for _, afterHeartbeatHook := range m.afterHeartbeatHooks {
-				afterHeartbeatHook(heartbeat, updateActiveClusterStatus, requeuedTaskRunnersStatus)
+				err := afterHeartbeatHook(heartbeat, m, staleMessageUpdates)
+				if err != nil {
+					m.logger.Println("ERR: Failed to execute after heartbeat hook", err)
+					return err
+				}
 			}
 		case <-m.heartbeatChannel:
 			return nil
@@ -341,18 +344,21 @@ func (m *Manager) IsActive() bool {
 	return m.active
 }
 
-func (m *Manager) Active(active bool) (bool, bool) {
-	m.lock.Lock()
-	activateManager := !m.active && active
-	deactivateManager := m.active && !active
+func (m *Manager) Active(active bool) {
+	isActive := m.IsActive()
+	activateManager := !isActive && active
+	deactivateManager := isActive && !active
 	if activateManager || deactivateManager {
+		m.lock.Lock()
 		m.active = active
 		for _, worker := range m.workers {
-			worker.fetcher.Active(active)
+			worker.fetcher.SetActive(active)
+		}
+		m.lock.Unlock()
+		for _, hook := range m.afterActiveChangeHooks {
+			hook(m, activateManager, deactivateManager)
 		}
 	}
-	m.lock.Unlock()
-	return activateManager, deactivateManager
 }
 
 func (m *Manager) removeHeartbeat() error {
@@ -366,86 +372,11 @@ func (m *Manager) removeHeartbeat() error {
 }
 
 func (m *Manager) sendHeartbeat(heartbeatTime time.Time) (*storage.Heartbeat, error) {
-	heartbeat, err := m.buildHeartbeat(heartbeatTime)
+	heartbeat, err := m.buildHeartbeat(heartbeatTime, m.opts.Heartbeat.HeartbeatTTL)
 	if err != nil {
 		return heartbeat, err
 	}
 
-	err = m.opts.store.SendHeartbeat(context.Background(), heartbeat, m.opts.Heartbeat.ManagerTTL)
+	err = m.opts.store.SendHeartbeat(context.Background(), heartbeat)
 	return heartbeat, err
-}
-
-func (m *Manager) handleExpiredTaskRunners(now time.Time) ([]requeuedTaskRunnerStatus, error) {
-	expiredTaskRunnerKeys, err := m.opts.store.GetExpiredTaskRunnerKeys(context.Background(), now.Add(-m.opts.Heartbeat.TaskRunnerEvictInterval).Unix())
-	if err != nil {
-		return nil, err
-	}
-
-	var requeudTaskRunners []requeuedTaskRunnerStatus
-	requeuedInProgressQueues := make(map[string]bool)
-	for _, expiredTaskRunnerKey := range expiredTaskRunnerKeys {
-		taskRunnerInfo, err := m.opts.store.GetTaskRunnerInfo(context.Background(), expiredTaskRunnerKey)
-		if err != nil {
-			return nil, err
-		}
-		var requeuedMsgs []string
-		if _, exists := requeuedInProgressQueues[taskRunnerInfo.InProgressQueue]; exists {
-			continue
-		}
-		requeuedMsgs, err = m.opts.store.RequeueMessagesFromInProgressQueue(context.Background(), taskRunnerInfo.InProgressQueue, taskRunnerInfo.Queue)
-		if err != nil {
-			return nil, err
-		}
-		expiredTaskRunnerStatus := requeuedTaskRunnerStatus{
-			pid:             taskRunnerInfo.Pid,
-			tid:             taskRunnerInfo.Tid,
-			queue:           taskRunnerInfo.Queue,
-			inprogressQueue: taskRunnerInfo.InProgressQueue,
-			requeuedMsgs:    requeuedMsgs,
-		}
-		err = m.opts.store.EvictTaskRunnerInfo(context.Background(), taskRunnerInfo.Pid, taskRunnerInfo.Tid)
-		if err != nil {
-			return requeudTaskRunners, err
-		}
-		requeudTaskRunners = append(requeudTaskRunners, expiredTaskRunnerStatus)
-		requeuedInProgressQueues[taskRunnerInfo.InProgressQueue] = true
-	}
-	return requeudTaskRunners, nil
-}
-
-func (m *Manager) updateActiveCluster(now time.Time) (*updateActiveClusterStatus, error) {
-	if m.opts.ActivePassiveFailover == nil {
-		return nil, nil
-	}
-	ctx := context.Background()
-	err := m.opts.store.AddActiveCluster(ctx, m.opts.ActivePassiveFailover.ClusterID, m.opts.ActivePassiveFailover.ClusterPriority)
-	if err != nil {
-		return nil, err
-	}
-	err = m.opts.store.EvictExpiredClusters(ctx, now.Add(-m.opts.Heartbeat.ClusterEvictInterval).Unix())
-	activeClusterID, err := m.opts.store.GetHighestPriorityActiveClusterID(ctx)
-	activeManager := m.opts.ActivePassiveFailover.ClusterID == activeClusterID
-	var updateClusterStatus *updateActiveClusterStatus
-	activateManager, deactivateManager := m.Active(activeManager)
-	updateClusterStatus = &updateActiveClusterStatus{activeClusterID: activeClusterID, activateManager: activateManager, deactivateManager: deactivateManager}
-
-	if err != nil {
-		return updateClusterStatus, err
-	}
-	return updateClusterStatus, nil
-}
-
-func (m *Manager) debugLogHeartbeat(heartbeat *storage.Heartbeat, updateActiveCluster *updateActiveClusterStatus, requeuedTaskRunnersStatus []requeuedTaskRunnerStatus) {
-	if updateActiveCluster != nil {
-		m.logger.Println(fmt.Sprintf("[%s] Updated active cluster: {'clusterID': %s, 'activeClusterID': %s, 'activateManager': %t, 'deactivateManager': %t }",
-			heartbeat.Beat.String(), m.opts.ActivePassiveFailover.ClusterID, updateActiveCluster.activeClusterID, updateActiveCluster.activateManager, updateActiveCluster.deactivateManager))
-	}
-	if len(requeuedTaskRunnersStatus) > 0 {
-		for _, requeuedTaskRunnerStatus := range requeuedTaskRunnersStatus {
-			for _, msg := range requeuedTaskRunnerStatus.requeuedMsgs {
-				m.logger.Println(fmt.Sprintf("[%s] Requeued message: {'inProgressQueue': '%s', 'queue': %s', 'message': '%s'}",
-					heartbeat.Beat.String(), requeuedTaskRunnerStatus.inprogressQueue, requeuedTaskRunnerStatus.queue, msg))
-			}
-		}
-	}
 }
