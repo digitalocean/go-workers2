@@ -3,6 +3,7 @@ package workers
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -383,7 +384,8 @@ func TestManager_Run_HeartbeatHandlesStaleInProgressMessages(t *testing.T) {
 	assert.NoError(t, err)
 	assertMgr1Heartbeat := false
 	mgr1.AddAfterHeartbeatHooks(func(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*storage.StaleMessageUpdate) error {
-		if !assertMgr1Heartbeat && heartbeat.Beat.Sub(pollMgr1StartTime) > assertMgr1HeartbeatTimeoutDuration {
+		heartbeatTime := time.Unix(heartbeat.Beat, 0)
+		if !assertMgr1Heartbeat && heartbeatTime.Sub(pollMgr1StartTime) > assertMgr1HeartbeatTimeoutDuration {
 			assert.Fail(t, "mgr1 heartbeat timed out")
 		}
 		if len(heartbeat.WorkerHeartbeats) > 0 {
@@ -434,7 +436,8 @@ func TestManager_Run_HeartbeatHandlesStaleInProgressMessages(t *testing.T) {
 	assert.NoError(t, err)
 	assertMessageRequeued := make(chan bool)
 	mgr2.AddAfterHeartbeatHooks(func(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*storage.StaleMessageUpdate) error {
-		if heartbeat.Beat.Sub(pollMgr2StartTime) > mgr2.opts.Heartbeat.HeartbeatTTL*2 {
+		heartbeatTime := time.Unix(heartbeat.Beat, 0)
+		if heartbeatTime.Sub(pollMgr2StartTime) > mgr2.opts.Heartbeat.HeartbeatTTL*2 {
 			assert.Fail(t, "mgr2 timed out polling for requeued stale task runner")
 			assertMessageRequeued <- false
 		}
@@ -478,4 +481,89 @@ func TestManager_Run_HeartbeatHandlesStaleInProgressMessages(t *testing.T) {
 	mgr2.Stop()
 	wg1.Wait()
 	wg2.Wait()
+}
+
+type testPrioritizedActiveManagerConfig struct {
+	manager           *Manager
+	callCounter       *CallCounter
+	managerPriority   int64
+	waitGroup         sync.WaitGroup
+	assertHeartbeat   chan bool
+	assertedHeartbeat bool
+	assertedActivate  bool
+}
+
+func TestManager_Run_PrioritizedActiveManager(t *testing.T) {
+	namespace := "mgrruntest"
+	var managerConfigs []*testPrioritizedActiveManagerConfig
+	totalManagers := 6
+	totalActiveManagers := totalManagers / 2
+	// initialize managers
+	for i := 0; i < totalManagers; i++ {
+		opts := SetupDefaultTestOptionsWithHeartbeat(namespace, fmt.Sprintf("process%d", i))
+		opts.ManagerStartInactive = true
+		// half of the managers will be active based on priority
+		opts.Heartbeat.PrioritizedManager = &PrioritizedManagerOptions{
+			TotalActiveManagers: totalActiveManagers,
+			ManagerPriority:     i,
+		}
+		flushDB := i == 0
+		manager, err := newTestManager(opts, flushDB)
+		assert.NoError(t, err)
+		mgrqcc := NewCallCounter()
+		manager.AddWorker("testqueue", 3, mgrqcc.F, NopMiddleware)
+
+		managerConfig := &testPrioritizedActiveManagerConfig{
+			manager:           manager,
+			callCounter:       mgrqcc,
+			managerPriority:   int64(i),
+			assertHeartbeat:   make(chan bool),
+			assertedHeartbeat: false,
+		}
+
+		manager.AddAfterHeartbeatHooks(func(heartbeat *storage.Heartbeat, manager *Manager, requeuedTaskRunnersStatus []*storage.StaleMessageUpdate) error {
+			if !managerConfig.assertedHeartbeat {
+				managerConfig.assertHeartbeat <- true
+			}
+			return nil
+		})
+
+		go func() {
+			managerConfig.waitGroup.Add(1)
+			managerConfig.manager.Run()
+			managerConfig.waitGroup.Done()
+		}()
+		managerConfigs = append(managerConfigs, managerConfig)
+	}
+
+	// synchronize all managers have had a heartbeat
+	for i := 0; i < totalManagers; i++ {
+		managerConfigs[i].assertedHeartbeat = <-managerConfigs[i].assertHeartbeat
+		assert.True(t, managerConfigs[i].assertedHeartbeat)
+	}
+
+	time.Sleep(managerConfigs[0].manager.Opts().Heartbeat.Interval * 2)
+
+	// verify managers 0 to 2 are inactive and 1 to 5 are active
+	for i := 0; i < totalManagers; i++ {
+		if i < totalManagers/2 {
+			assert.False(t, managerConfigs[i].manager.IsActive())
+		} else {
+			// higher priority managers are activated
+			assert.True(t, managerConfigs[i].manager.IsActive())
+		}
+	}
+
+	// stop all the active highest priority managers
+	for i := totalManagers / 2; i < totalManagers; i++ {
+		managerConfigs[i].manager.Stop()
+		managerConfigs[i].waitGroup.Wait()
+	}
+
+	time.Sleep(managerConfigs[0].manager.Opts().Heartbeat.HeartbeatTTL * 2)
+
+	// the lowest priority managers will activate
+	for i := 0; i < totalManagers/2; i++ {
+		assert.True(t, managerConfigs[i].manager.IsActive())
+	}
 }

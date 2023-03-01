@@ -57,6 +57,13 @@ type HeartbeatOptions struct {
 
 	// redis eviction ttl config
 	HeartbeatTTL time.Duration
+
+	PrioritizedManager *PrioritizedManagerOptions
+}
+
+type PrioritizedManagerOptions struct {
+	ManagerPriority     int
+	TotalActiveManagers int
 }
 
 func processOptions(options Options) (Options, error) {

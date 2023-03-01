@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -72,13 +73,17 @@ func newManager(processedOptions Options) (*Manager, error) {
 		return nil, err
 	}
 
-	return &Manager{
+	manager := &Manager{
 		uuid:         uuid.New().String(),
 		logger:       processedOptions.Logger,
 		opts:         processedOptions,
 		processNonce: processNonce,
 		active:       !processedOptions.ManagerStartInactive,
-	}, nil
+	}
+	if processedOptions.Heartbeat != nil && processedOptions.Heartbeat.PrioritizedManager != nil {
+		manager.AddAfterHeartbeatHooks(activateManagerByPriority)
+	}
+	return manager, nil
 }
 
 // AddWorker adds a new job processing worker
@@ -379,4 +384,42 @@ func (m *Manager) sendHeartbeat(heartbeatTime time.Time) (*storage.Heartbeat, er
 
 	err = m.opts.store.SendHeartbeat(context.Background(), heartbeat)
 	return heartbeat, err
+}
+
+func activateManagerByPriority(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*storage.StaleMessageUpdate) error {
+	ctx := context.Background()
+	activeHeartbeatIDs, err := manager.opts.store.GetActiveHeartbeatIDs(ctx)
+	if err != nil {
+		return err
+	}
+	var activeHeartbeats []*storage.Heartbeat
+
+	for _, heartbeatID := range activeHeartbeatIDs {
+		activeHeartbeat, err := manager.opts.store.GetHeartbeat(ctx, heartbeatID)
+		if err != nil {
+			return err
+		}
+		if activeHeartbeat != nil {
+			activeHeartbeats = append(activeHeartbeats, activeHeartbeat)
+		}
+	}
+
+	if len(activeHeartbeats) == 0 {
+		return nil
+	}
+	// order active heartbeats by manager priority descending
+	sort.Slice(activeHeartbeats, func(i, j int) bool {
+		return activeHeartbeats[i].ManagerPriority > activeHeartbeats[j].ManagerPriority
+	})
+
+	// if current manager's priority is high enough to be within total active manager threshold, set manager as active
+	activeManager := false
+	for i := 0; i < manager.opts.Heartbeat.PrioritizedManager.TotalActiveManagers; i++ {
+		if activeHeartbeats[i].Identity == heartbeat.Identity {
+			activeManager = true
+			break
+		}
+	}
+	manager.Active(activeManager)
+	return nil
 }

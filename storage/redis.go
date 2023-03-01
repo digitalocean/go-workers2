@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
@@ -57,6 +58,58 @@ func (r *redisStore) CheckRtt(ctx context.Context) int64 {
 	return ellapsed.Microseconds()
 }
 
+func (r *redisStore) GetHeartbeat(ctx context.Context, heartbeatID string) (*Heartbeat, error) {
+	heartbeatProperties := []string{"beat", "quiet", "busy", "rtt_us", "rss", "info", "manager_priority", "active_manager"}
+	booleanProperties := []string{"quiet", "active_manager"}
+	managerKey := GetManagerKey(r.namespace, heartbeatID)
+	heartbeatPropertyValues, err := r.client.HMGet(ctx, managerKey, heartbeatProperties...).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	heartbeatStrMap := make(map[string]string)
+	hasPropertyValue := false
+	for i, heartbeatProperty := range heartbeatProperties {
+		if heartbeatPropertyValues[i] != nil {
+			heartbeatStrMap[heartbeatProperty] = heartbeatPropertyValues[i].(string)
+			hasPropertyValue = true
+		}
+	}
+
+	for _, booleanProperty := range booleanProperties {
+		if heartbeatStrMap[booleanProperty] == "1" {
+			heartbeatStrMap[booleanProperty] = "true"
+		} else {
+			heartbeatStrMap[booleanProperty] = "false"
+		}
+	}
+
+	if !hasPropertyValue {
+		return nil, nil
+	}
+
+	heartbeatJson, err := json.Marshal(heartbeatStrMap)
+	if err != nil {
+		return nil, err
+	}
+
+	heartbeat := Heartbeat{}
+	err = json.Unmarshal(heartbeatJson, &heartbeat)
+	if err != nil {
+		return nil, err
+	}
+	heartbeat.Identity = heartbeatID
+	return &heartbeat, nil
+}
+
+func (r *redisStore) GetActiveHeartbeatIDs(ctx context.Context) ([]string, error) {
+	heartbeatIDs, err := r.client.SMembers(ctx, GetProcessesKey(r.namespace)).Result()
+	if err != nil && err != redis.Nil {
+		return nil, err
+	}
+	return heartbeatIDs, nil
+}
+
 func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) error {
 	now, err := r.GetTime(ctx)
 	if err != nil {
@@ -70,31 +123,32 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 	pipe.SAdd(ctx, GetProcessesKey(r.namespace), heartbeat.Identity) // add to the sidekiq processes set without the namespace
 
 	pipe.HMSet(ctx, managerKey,
-		"beat", heartbeat.Beat.UTC().Unix(),
+		"beat", heartbeat.Beat,
 		"quiet", heartbeat.Quiet,
 		"busy", heartbeat.Busy,
 		"rtt_us", rtt,
 		"rss", heartbeat.RSS,
 		"info", heartbeat.Info,
+		"manager_priority", heartbeat.ManagerPriority,
 		"active_manager", heartbeat.ActiveManager)
 	pipe.Expire(ctx, managerKey, heartbeat.Ttl)
 
 	workersKey := GetWorkersKey(managerKey)
 	pipe.Del(ctx, workersKey)
 
-	for _, workerHeatbeat := range heartbeat.WorkerHeartbeats {
-		workerID := GetWorkerID(heartbeat.Pid, workerHeatbeat.Tid)
-		if workerHeatbeat.WorkerMsg != "" {
+	for _, workerHeartbeat := range heartbeat.WorkerHeartbeats {
+		workerID := GetWorkerID(heartbeat.Pid, workerHeartbeat.Tid)
+		if workerHeartbeat.WorkerMsg != "" {
 			// workersKey contains in-progress work messages for a given worker as of the heartbeat
-			pipe.HSet(ctx, workersKey, workerID, workerHeatbeat.WorkerMsg)
+			pipe.HSet(ctx, workersKey, workerID, workerHeartbeat.WorkerMsg)
 		}
 		// workerKey contains worker info used for recovering un-handled in-progress work
 		workerKey := GetWorkerKey(r.namespace, workerID)
 		pipe.HMSet(ctx, workerKey,
-			"pid", workerHeatbeat.Pid,
-			"tid", workerHeatbeat.Tid,
-			"queue", workerHeatbeat.Queue,
-			"inprogress_queue", workerHeatbeat.InProgressQueue)
+			"pid", workerHeartbeat.Pid,
+			"tid", workerHeartbeat.Tid,
+			"queue", workerHeartbeat.Queue,
+			"inprogress_queue", workerHeartbeat.InProgressQueue)
 		pipe.ZAdd(ctx, GetActiveWorkersKey(r.namespace), &redis.Z{Member: workerKey, Score: float64(now.Unix())})
 	}
 	_, err = pipe.Exec(ctx)
@@ -107,10 +161,11 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 
 func (r *redisStore) HandleExpiredHeartbeatIdentities(ctx context.Context) ([]string, error) {
 	heartbeatIDs, err := r.client.SMembers(ctx, GetProcessesKey(r.namespace)).Result()
-	var expiredHeartbeatIDs []string
 	if err != nil && err != redis.Nil {
 		return nil, err
 	}
+	var expiredHeartbeatIDs []string
+
 	for _, heartbeatID := range heartbeatIDs {
 		managerKey := GetManagerKey(r.namespace, heartbeatID)
 		exist, err := r.client.Exists(ctx, managerKey).Result()

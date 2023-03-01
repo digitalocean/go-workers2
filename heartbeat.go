@@ -148,7 +148,7 @@ func (m *Manager) buildHeartbeat(heartbeatTime time.Time, ttl time.Duration) (*s
 
 	heartbeat := &storage.Heartbeat{
 		Identity:         heartbeatID,
-		Beat:             heartbeatTime,
+		Beat:             heartbeatTime.UTC().Unix(),
 		Quiet:            false,
 		Busy:             busy,
 		RSS:              0, // rss is not currently supported
@@ -157,6 +157,9 @@ func (m *Manager) buildHeartbeat(heartbeatTime time.Time, ttl time.Duration) (*s
 		ActiveManager:    m.IsActive(),
 		WorkerHeartbeats: workerHeartbeats,
 		Ttl:              ttl,
+	}
+	if m.opts.Heartbeat != nil && m.opts.Heartbeat.PrioritizedManager != nil {
+		heartbeat.ManagerPriority = m.opts.Heartbeat.PrioritizedManager.ManagerPriority
 	}
 
 	return heartbeat, nil

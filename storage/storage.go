@@ -37,16 +37,17 @@ type Retries struct {
 
 // Heartbeat is used for the ruby sidekiq web ui
 type Heartbeat struct {
-	Identity string
+	Identity string `json:"identity"`
 
-	Beat          time.Time
-	Quiet         bool
-	Busy          int
-	RttUS         int
-	RSS           int64
-	Info          string
-	Pid           int
-	ActiveManager bool
+	Beat            int64  `json:"beat,string"`
+	Quiet           bool   `json:"quiet,string"`
+	Busy            int    `json:"busy,string"`
+	RttUS           int    `json:"rtt_us,string"`
+	RSS             int64  `json:"rss,string"`
+	Info            string `json:"info"`
+	Pid             int    `json:"pid,string"`
+	ManagerPriority int    `json:"manager_priority,string"`
+	ActiveManager   bool   `json:"active_manager,string"`
 
 	Ttl time.Duration
 
@@ -91,6 +92,8 @@ type Store interface {
 	GetAllStats(ctx context.Context, queues []string) (*Stats, error)
 
 	// Heartbeat
+	GetActiveHeartbeatIDs(ctx context.Context) ([]string, error)
+	GetHeartbeat(ctx context.Context, heartbeatID string) (*Heartbeat, error)
 	SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) error
 	RemoveHeartbeat(ctx context.Context, heartbeatID string) error
 	HandleExpiredHeartbeatIdentities(ctx context.Context) ([]string, error)
