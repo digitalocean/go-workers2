@@ -217,7 +217,7 @@ func (m *Manager) GetStats() (Stats, error) {
 	stats.Failed = storeStats.Failed
 	stats.RetryCount = storeStats.RetryCount
 
-	for q, l := range stats.Enqueued {
+	for q, l := range storeStats.Enqueued {
 		stats.Enqueued[q] = l
 	}
 
