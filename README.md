@@ -94,6 +94,9 @@ func main() {
   // Add a job to a queue with retry
   producer.EnqueueWithOptions("myqueue3", "Add", []int{1, 2}, workers.EnqueueOptions{Retry: true})
 
+  // Add a job to a queue passing the context to redis
+  producer.EnqueueWithContext(ctx.Background(), "myqueue3", "Add", []int{1, 2}, workers.EnqueueOptions{Retry: true})
+
   // stats will be available at http://localhost:8080/stats
   go workers.StartAPIServer(8080)
 
