@@ -86,6 +86,11 @@ func (p *Producer) EnqueueAt(queue, class string, at time.Time, args interface{}
 
 // EnqueueWithOptions enqueues new work for processing with the given options
 func (p *Producer) EnqueueWithOptions(queue, class string, args interface{}, opts EnqueueOptions) (string, error) {
+	return p.EnqueueWithContext(context.Background(), queue, class, args, opts)
+}
+
+// EnqueueWithContext enqueues new work for processing with the given options and context
+func (p *Producer) EnqueueWithContext(ctx context.Context, queue, class string, args interface{}, opts EnqueueOptions) (string, error) {
 	now := nowToSecondsWithNanoPrecision()
 	data := EnqueueData{
 		Queue:          queue,
@@ -102,16 +107,16 @@ func (p *Producer) EnqueueWithOptions(queue, class string, args interface{}, opt
 	}
 
 	if now < opts.At {
-		err = p.opts.store.EnqueueScheduledMessage(context.Background(), data.At, string(bytes))
+		err = p.opts.store.EnqueueScheduledMessage(ctx, data.At, string(bytes))
 		return data.Jid, err
 	}
 
-	err = p.opts.store.CreateQueue(context.Background(), queue)
+	err = p.opts.store.CreateQueue(ctx, queue)
 	if err != nil {
 		return "", err
 	}
 
-	err = p.opts.store.EnqueueMessageNow(context.Background(), queue, string(bytes))
+	err = p.opts.store.EnqueueMessageNow(ctx, queue, string(bytes))
 	if err != nil {
 		return "", err
 	}
