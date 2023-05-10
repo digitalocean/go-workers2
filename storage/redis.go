@@ -58,7 +58,7 @@ func (r *redisStore) CheckRtt(ctx context.Context) int64 {
 	return ellapsed.Microseconds()
 }
 
-func (r *redisStore) GetHeartbeat(ctx context.Context, heartbeatID string) (*Heartbeat, error) {
+func (r *redisStore) getHeartbeat(ctx context.Context, heartbeatID string) (*Heartbeat, error) {
 	heartbeatProperties := []string{"beat", "quiet", "busy", "rtt_us", "rss", "info", "manager_priority", "active_manager"}
 	booleanProperties := []string{"quiet", "active_manager"}
 	managerKey := GetManagerKey(r.namespace, heartbeatID)
@@ -102,7 +102,26 @@ func (r *redisStore) GetHeartbeat(ctx context.Context, heartbeatID string) (*Hea
 	return &heartbeat, nil
 }
 
-func (r *redisStore) GetActiveHeartbeatIDs(ctx context.Context) ([]string, error) {
+func (r *redisStore) GetAllHeartbeats(ctx context.Context) ([]*Heartbeat, error) {
+	var heartbeats []*Heartbeat
+
+	heartbeatIDs, err := r.getHeartbeatIDs(ctx)
+	if len(heartbeatIDs) == 0 {
+		return nil, err
+	}
+	for _, heartbeatID := range heartbeatIDs {
+		heartbeat, err := r.getHeartbeat(ctx, heartbeatID)
+		if err != nil {
+			return nil, err
+		}
+		if heartbeat != nil {
+			heartbeats = append(heartbeats, heartbeat)
+		}
+	}
+	return heartbeats, nil
+}
+
+func (r *redisStore) getHeartbeatIDs(ctx context.Context) ([]string, error) {
 	heartbeatIDs, err := r.client.SMembers(ctx, GetProcessesKey(r.namespace)).Result()
 	if err != nil && err != redis.Nil {
 		return nil, err
@@ -131,7 +150,6 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 		"info", heartbeat.Info,
 		"manager_priority", heartbeat.ManagerPriority,
 		"active_manager", heartbeat.ActiveManager)
-	pipe.Expire(ctx, managerKey, heartbeat.Ttl)
 
 	workersKey := GetWorkersKey(managerKey)
 	pipe.Del(ctx, workersKey)
@@ -159,7 +177,7 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 	return nil
 }
 
-func (r *redisStore) HandleExpiredHeartbeatIdentities(ctx context.Context) ([]string, error) {
+func (r *redisStore) HandleAllExpiredHeartbeats(ctx context.Context, expireTS int64) ([]*StaleMessageUpdate, error) {
 	heartbeatIDs, err := r.client.SMembers(ctx, GetProcessesKey(r.namespace)).Result()
 	if err != nil && err != redis.Nil {
 		return nil, err
@@ -168,11 +186,15 @@ func (r *redisStore) HandleExpiredHeartbeatIdentities(ctx context.Context) ([]st
 
 	for _, heartbeatID := range heartbeatIDs {
 		managerKey := GetManagerKey(r.namespace, heartbeatID)
-		exist, err := r.client.Exists(ctx, managerKey).Result()
+		strHeartbeatTS, err := r.client.HGet(ctx, managerKey, "beat").Result()
+		if err != nil && err != redis.Nil {
+			return nil, err
+		}
+		heartbeatTS, err := strconv.Atoi(strHeartbeatTS)
 		if err != nil {
 			return nil, err
 		}
-		if exist == int64(0) {
+		if err == redis.Nil || int64(heartbeatTS) <= expireTS {
 			_, err := r.client.SRem(ctx, GetProcessesKey(r.namespace), heartbeatID).Result()
 			if err != nil {
 				return nil, err
@@ -180,7 +202,11 @@ func (r *redisStore) HandleExpiredHeartbeatIdentities(ctx context.Context) ([]st
 			expiredHeartbeatIDs = append(expiredHeartbeatIDs, heartbeatID)
 		}
 	}
-	return expiredHeartbeatIDs, nil
+	staleMessageUpdates, err := r.handleExpiredWorkerHeartbeats(ctx, expireTS)
+	if err != nil {
+		return nil, err
+	}
+	return staleMessageUpdates, nil
 }
 
 func (r *redisStore) getExpiredWorkerHeartbeatKeys(ctx context.Context, expireTS int64) ([]string, error) {
@@ -263,7 +289,7 @@ func (r *redisStore) RemoveHeartbeat(ctx context.Context, heartbeatID string) er
 	return nil
 }
 
-func (r *redisStore) HandleExpiredWorkerHeartbeats(ctx context.Context, expireTS int64) ([]*StaleMessageUpdate, error) {
+func (r *redisStore) handleExpiredWorkerHeartbeats(ctx context.Context, expireTS int64) ([]*StaleMessageUpdate, error) {
 	// now
 	expiredWorkerHeartbeatKeys, err := r.getExpiredWorkerHeartbeatKeys(ctx, expireTS)
 	if err != nil {

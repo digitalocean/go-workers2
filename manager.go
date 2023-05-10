@@ -204,7 +204,7 @@ func (m *Manager) Stop() {
 		return
 	}
 	if m.opts.Heartbeat != nil {
-		m.removeHeartbeat()
+		m.stopHeartbeat()
 	}
 	for _, w := range m.workers {
 		w.quit()
@@ -320,12 +320,7 @@ func (m *Manager) startHeartbeat() error {
 				return err
 			}
 			expireTS := heartbeatTime.Add(-m.opts.Heartbeat.HeartbeatTTL).Unix()
-			staleMessageUpdates, err := m.opts.store.HandleExpiredWorkerHeartbeats(context.Background(), expireTS)
-			if err != nil {
-				m.logger.Println("ERR: Failed to handle expired workers", err)
-				return err
-			}
-			_, err = m.opts.store.HandleExpiredHeartbeatIdentities(context.Background())
+			staleMessageUpdates, err := m.opts.store.HandleAllExpiredHeartbeats(context.Background(), expireTS)
 			if err != nil {
 				m.logger.Println("ERR: error expiring heartbeat identities", err)
 				return err
@@ -366,14 +361,8 @@ func (m *Manager) Active(active bool) {
 	}
 }
 
-func (m *Manager) removeHeartbeat() error {
+func (m *Manager) stopHeartbeat() {
 	m.heartbeatChannel <- true
-	heartbeatID, err := m.getHeartbeatID()
-	if err != nil {
-		return err
-	}
-	err = m.opts.store.RemoveHeartbeat(context.Background(), heartbeatID)
-	return err
 }
 
 func (m *Manager) sendHeartbeat(heartbeatTime time.Time) (*storage.Heartbeat, error) {
@@ -388,34 +377,22 @@ func (m *Manager) sendHeartbeat(heartbeatTime time.Time) (*storage.Heartbeat, er
 
 func activateManagerByPriority(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*storage.StaleMessageUpdate) error {
 	ctx := context.Background()
-	activeHeartbeatIDs, err := manager.opts.store.GetActiveHeartbeatIDs(ctx)
+	heartbeats, err := manager.opts.store.GetAllHeartbeats(ctx)
 	if err != nil {
 		return err
 	}
-	var activeHeartbeats []*storage.Heartbeat
-
-	for _, heartbeatID := range activeHeartbeatIDs {
-		activeHeartbeat, err := manager.opts.store.GetHeartbeat(ctx, heartbeatID)
-		if err != nil {
-			return err
-		}
-		if activeHeartbeat != nil {
-			activeHeartbeats = append(activeHeartbeats, activeHeartbeat)
-		}
-	}
-
-	if len(activeHeartbeats) == 0 {
+	if len(heartbeats) == 0 {
 		return nil
 	}
 	// order active heartbeats by manager priority descending
-	sort.Slice(activeHeartbeats, func(i, j int) bool {
-		return activeHeartbeats[i].ManagerPriority > activeHeartbeats[j].ManagerPriority
+	sort.Slice(heartbeats, func(i, j int) bool {
+		return heartbeats[i].ManagerPriority > heartbeats[j].ManagerPriority
 	})
 
 	// if current manager's priority is high enough to be within total active manager threshold, set manager as active
 	activeManager := false
 	for i := 0; i < manager.opts.Heartbeat.PrioritizedManager.TotalActiveManagers; i++ {
-		if activeHeartbeats[i].Identity == heartbeat.Identity {
+		if heartbeats[i].Identity == heartbeat.Identity {
 			activeManager = true
 			break
 		}

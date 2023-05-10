@@ -92,12 +92,10 @@ type Store interface {
 	GetAllStats(ctx context.Context, queues []string) (*Stats, error)
 
 	// Heartbeat
-	GetActiveHeartbeatIDs(ctx context.Context) ([]string, error)
-	GetHeartbeat(ctx context.Context, heartbeatID string) (*Heartbeat, error)
+	GetAllHeartbeats(ctx context.Context) ([]*Heartbeat, error)
 	SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) error
 	RemoveHeartbeat(ctx context.Context, heartbeatID string) error
-	HandleExpiredHeartbeatIdentities(ctx context.Context) ([]string, error)
-	HandleExpiredWorkerHeartbeats(ctx context.Context, expireTS int64) ([]*StaleMessageUpdate, error)
+	HandleAllExpiredHeartbeats(ctx context.Context, expireTS int64) ([]*StaleMessageUpdate, error)
 
 	// Retries
 	GetAllRetries(ctx context.Context) (*Retries, error)
