@@ -263,8 +263,8 @@ func TestManager_inProgressMessages(t *testing.T) {
 
 	q1cc := NewCallCounter()
 	q2cc := NewCallCounter()
-	mgr.AddWorker("queue1", 1, q1cc.F, NopMiddleware)
-	mgr.AddWorker("queue2", 2, q2cc.F, NopMiddleware)
+	mgr.AddWorker("ipm_test_queue1", 1, q1cc.F, NopMiddleware)
+	mgr.AddWorker("ipm_test_queue2", 2, q2cc.F, NopMiddleware)
 
 	var wg sync.WaitGroup
 	go func() {
@@ -276,43 +276,43 @@ func TestManager_inProgressMessages(t *testing.T) {
 	// None
 	ipm := mgr.inProgressMessages()
 	assert.Len(t, ipm, 2)
-	assert.Contains(t, ipm, "queue1")
-	assert.Contains(t, ipm, "queue2")
-	assert.Empty(t, ipm["queue1"])
-	assert.Empty(t, ipm["queue2"])
+	assert.Contains(t, ipm, "ipm_test_queue1")
+	assert.Contains(t, ipm, "ipm_test_queue2")
+	assert.Empty(t, ipm["ipm_test_queue1"])
+	assert.Empty(t, ipm["ipm_test_queue2"])
 
 	// One in Queue1
-	_, err = prod.Enqueue("queue1", "any", q1cc.syncMsg().Args().Interface())
+	_, err = prod.Enqueue("ipm_test_queue1", "any", q1cc.syncMsg().Args().Interface())
 	assert.NoError(t, err)
 	<-q1cc.syncCh
 	ipm = mgr.inProgressMessages()
 	assert.Len(t, ipm, 2)
-	assert.Contains(t, ipm, "queue1")
-	assert.Contains(t, ipm, "queue2")
-	assert.Len(t, ipm["queue1"], 1)
-	assert.Empty(t, ipm["queue2"])
+	assert.Contains(t, ipm, "ipm_test_queue1")
+	assert.Contains(t, ipm, "ipm_test_queue2")
+	assert.Len(t, ipm["ipm_test_queue1"], 1)
+	assert.Empty(t, ipm["ipm_test_queue2"])
 
 	// One in Queue2
-	_, err = prod.Enqueue("queue2", "any", q2cc.syncMsg().Args().Interface())
+	_, err = prod.Enqueue("ipm_test_queue2", "any", q2cc.syncMsg().Args().Interface())
 	assert.NoError(t, err)
 	<-q2cc.syncCh
 	ipm = mgr.inProgressMessages()
 	assert.Len(t, ipm, 2)
-	assert.Contains(t, ipm, "queue1")
-	assert.Contains(t, ipm, "queue2")
-	assert.Len(t, ipm["queue1"], 1)
-	assert.Len(t, ipm["queue2"], 1)
+	assert.Contains(t, ipm, "ipm_test_queue1")
+	assert.Contains(t, ipm, "ipm_test_queue2")
+	assert.Len(t, ipm["ipm_test_queue1"], 1)
+	assert.Len(t, ipm["ipm_test_queue2"], 1)
 
 	// Another in Queue2
-	_, err = prod.Enqueue("queue2", "any", q2cc.syncMsg().Args().Interface())
+	_, err = prod.Enqueue("ipm_test_queue2", "any", q2cc.syncMsg().Args().Interface())
 	assert.NoError(t, err)
 	<-q2cc.syncCh
 	ipm = mgr.inProgressMessages()
 	assert.Len(t, ipm, 2)
-	assert.Contains(t, ipm, "queue1")
-	assert.Contains(t, ipm, "queue2")
-	assert.Len(t, ipm["queue1"], 1)
-	assert.Len(t, ipm["queue2"], 2)
+	assert.Contains(t, ipm, "ipm_test_queue1")
+	assert.Contains(t, ipm, "ipm_test_queue2")
+	assert.Len(t, ipm["ipm_test_queue1"], 1)
+	assert.Len(t, ipm["ipm_test_queue2"], 2)
 
 	// Release two from Queue2
 	q2cc.ackSyncCh <- true
@@ -321,20 +321,20 @@ func TestManager_inProgressMessages(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	ipm = mgr.inProgressMessages()
 	assert.Len(t, ipm, 2)
-	assert.Contains(t, ipm, "queue1")
-	assert.Contains(t, ipm, "queue2")
-	assert.Len(t, ipm["queue1"], 1)
-	assert.Len(t, ipm["queue2"], 0)
+	assert.Contains(t, ipm, "ipm_test_queue1")
+	assert.Contains(t, ipm, "ipm_test_queue2")
+	assert.Len(t, ipm["ipm_test_queue1"], 1)
+	assert.Len(t, ipm["ipm_test_queue2"], 0)
 
 	// Release last from Queue1 - should have one left in queue2
 	q1cc.ackSyncCh <- true
 	time.Sleep(2 * time.Second)
 	ipm = mgr.inProgressMessages()
 	assert.Len(t, ipm, 2)
-	assert.Contains(t, ipm, "queue1")
-	assert.Contains(t, ipm, "queue2")
-	assert.Len(t, ipm["queue1"], 0)
-	assert.Len(t, ipm["queue2"], 0)
+	assert.Contains(t, ipm, "ipm_test_queue1")
+	assert.Contains(t, ipm, "ipm_test_queue2")
+	assert.Len(t, ipm["ipm_test_queue1"], 0)
+	assert.Len(t, ipm["ipm_test_queue2"], 0)
 
 	mgr.Stop()
 	wg.Wait()

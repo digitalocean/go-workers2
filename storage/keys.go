@@ -23,13 +23,3 @@ func GetWorkerID(pid int, tid string) string {
 func GetProcessesKey(namespace string) string {
 	return namespace + "processes"
 }
-
-// GetWorkerKey gets redis key for worker
-func GetWorkerKey(namespace, workerID string) string {
-	return namespace + "worker-" + workerID
-}
-
-// GetActiveWorkersKey gets redis key for all active worker heartbeats
-func GetActiveWorkersKey(namespace string) string {
-	return namespace + "worker-heartbeats-active-ts"
-}

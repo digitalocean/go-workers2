@@ -51,15 +51,15 @@ type Heartbeat struct {
 
 	Ttl time.Duration
 
-	WorkerHeartbeats []WorkerHeartbeat
+	WorkerHeartbeats []WorkerHeartbeat `json:"worker_heartbeats"`
 }
 
 type WorkerHeartbeat struct {
-	Pid             int
-	Tid             string
-	Queue           string
-	InProgressQueue string
-	WorkerMsg       string
+	Pid             int    `json:"pid,string"`
+	Tid             string `json:"tid,string"`
+	Queue           string `json:"queue,string"`
+	InProgressQueue string `json:"in_progress_queue,string"`
+	WorkerMsg       string `json:"worker_msg,string"`
 }
 
 type StaleMessageUpdate struct {
