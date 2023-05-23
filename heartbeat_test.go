@@ -51,7 +51,6 @@ func TestBuildHeartbeatWorkerMessage(t *testing.T) {
 	mgr.AddWorker("somequeue", 1, func(m *Msg) error {
 		return nil
 	})
-
 	msg, err := NewMsg("{\"class\":\"MyWorker\",\"jid\":\"jid-123\"}")
 
 	testLogger := log.New(os.Stdout, "test-go-workers2: ", log.Ldate|log.Lmicroseconds)
@@ -63,23 +62,17 @@ func TestBuildHeartbeatWorkerMessage(t *testing.T) {
 	tr.currentMsg = msg
 
 	firstWorker := mgr.workers[0]
+	firstWorker.inProgressQueue = "testinprogressqueue"
 	firstWorker.runners = []*taskRunner{tr}
 
 	heartbeat, err := mgr.buildHeartbeat(time.Now().UTC(), time.Second)
 	assert.Nil(t, err)
 
 	assert.Equal(t, 1, len(heartbeat.WorkerHeartbeats))
-
-	var decodedWorkerMsgWrapper map[string]interface{}
 	for _, v := range heartbeat.WorkerHeartbeats {
-		err = json.Unmarshal([]byte(v.WorkerMsg), &decodedWorkerMsgWrapper)
+		assert.Equal(t, firstWorker.queue, v.Queue)
+		assert.Equal(t, firstWorker.inProgressQueue, v.InProgressQueue)
+		assert.Equal(t, tr.tid, v.Tid)
 		assert.Nil(t, err)
 	}
-
-	var decodedWorkerMsgPayload map[string]interface{}
-
-	err = json.Unmarshal([]byte(decodedWorkerMsgWrapper["payload"].(string)), &decodedWorkerMsgPayload)
-
-	assert.Equal(t, "somequeue", decodedWorkerMsgWrapper["Queue"])
-	assert.Equal(t, "MyWorker", decodedWorkerMsgPayload["class"])
 }

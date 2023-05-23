@@ -31,10 +31,17 @@ type Manager struct {
 
 	beforeStartHooks       []func()
 	duringDrainHooks       []func()
-	afterHeartbeatHooks    []AfterHeartbeatFunc
 	afterActiveChangeHooks []AfterActiveChangeFunc
 
+	afterHeartbeatHooks []afterHeartbeatFunc
+
 	retriesExhaustedHandlers []RetriesExhaustedFunc
+}
+
+type staleMessageUpdate struct {
+	Queue           string
+	InprogressQueue string
+	RequeuedMsgs    []string
 }
 
 type AfterActiveChangeFunc func(manager *Manager, activateManager, deactivateManager bool)
@@ -81,7 +88,7 @@ func newManager(processedOptions Options) (*Manager, error) {
 		active:       !processedOptions.ManagerStartInactive,
 	}
 	if processedOptions.Heartbeat != nil && processedOptions.Heartbeat.PrioritizedManager != nil {
-		manager.AddAfterHeartbeatHooks(activateManagerByPriority)
+		manager.addAfterHeartbeatHooks(activateManagerByPriority)
 	}
 	return manager, nil
 }
@@ -114,7 +121,7 @@ func (m *Manager) AddDuringDrainHooks(hooks ...func()) {
 	m.duringDrainHooks = append(m.duringDrainHooks, hooks...)
 }
 
-func (m *Manager) AddAfterHeartbeatHooks(hooks ...AfterHeartbeatFunc) {
+func (m *Manager) addAfterHeartbeatHooks(hooks ...afterHeartbeatFunc) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.afterHeartbeatHooks = append(m.afterHeartbeatHooks, hooks...)
@@ -320,7 +327,7 @@ func (m *Manager) startHeartbeat() error {
 				return err
 			}
 			expireTS := heartbeatTime.Add(-m.opts.Heartbeat.HeartbeatTTL).Unix()
-			staleMessageUpdates, err := m.opts.store.HandleAllExpiredHeartbeats(context.Background(), expireTS)
+			staleMessageUpdates, err := m.handleAllExpiredHeartbeats(context.Background(), expireTS)
 			if err != nil {
 				m.logger.Println("ERR: error expiring heartbeat identities", err)
 				return err
@@ -336,6 +343,49 @@ func (m *Manager) startHeartbeat() error {
 			return nil
 		}
 	}
+}
+
+func (m *Manager) handleAllExpiredHeartbeats(ctx context.Context, expireTS int64) ([]*staleMessageUpdate, error) {
+	heartbeats, err := m.opts.store.GetAllHeartbeats(ctx)
+	if err != nil && err != redis.Nil {
+		return nil, err
+	}
+
+	var staleMessageUpdates []*staleMessageUpdate
+	for _, heartbeat := range heartbeats {
+		if heartbeat.Beat > expireTS {
+			continue
+		}
+
+		// requeue worker in-progress queues back to the queues
+		requeuedInProgressQueues := make(map[string]bool)
+		for _, workerHeartbeat := range heartbeat.WorkerHeartbeats {
+			var requeuedMsgs []string
+			if _, exists := requeuedInProgressQueues[workerHeartbeat.InProgressQueue]; exists {
+				continue
+			}
+			requeuedMsgs, err = m.opts.store.RequeueMessagesFromInProgressQueue(ctx, workerHeartbeat.InProgressQueue, workerHeartbeat.Queue)
+			if err != nil {
+				return nil, err
+			}
+			requeuedInProgressQueues[workerHeartbeat.InProgressQueue] = true
+			if len(requeuedMsgs) == 0 {
+				continue
+			}
+			updatedStaleMessage := &staleMessageUpdate{
+				Queue:           workerHeartbeat.Queue,
+				InprogressQueue: workerHeartbeat.InProgressQueue,
+				RequeuedMsgs:    requeuedMsgs,
+			}
+			staleMessageUpdates = append(staleMessageUpdates, updatedStaleMessage)
+		}
+		err = m.opts.store.RemoveHeartbeat(ctx, heartbeat.Identity)
+		if err != nil {
+			return nil, err
+		}
+
+	}
+	return staleMessageUpdates, nil
 }
 
 func (m *Manager) IsActive() bool {
@@ -375,7 +425,7 @@ func (m *Manager) sendHeartbeat(heartbeatTime time.Time) (*storage.Heartbeat, er
 	return heartbeat, err
 }
 
-func activateManagerByPriority(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*storage.StaleMessageUpdate) error {
+func activateManagerByPriority(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*staleMessageUpdate) error {
 	ctx := context.Background()
 	heartbeats, err := manager.opts.store.GetAllHeartbeats(ctx)
 	if err != nil {

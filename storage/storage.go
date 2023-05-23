@@ -51,7 +51,7 @@ type Heartbeat struct {
 
 	Ttl time.Duration
 
-	WorkerHeartbeats []WorkerHeartbeat `json:"worker_heartbeats"`
+	WorkerHeartbeats []WorkerHeartbeat `json:"-"`
 }
 
 type WorkerHeartbeat struct {
@@ -59,13 +59,6 @@ type WorkerHeartbeat struct {
 	Tid             string `json:"tid,string"`
 	Queue           string `json:"queue,string"`
 	InProgressQueue string `json:"in_progress_queue,string"`
-	WorkerMsg       string `json:"worker_msg,string"`
-}
-
-type StaleMessageUpdate struct {
-	Queue           string
-	InprogressQueue string
-	RequeuedMsgs    []string
 }
 
 // Store is the interface for storing and retrieving data
@@ -95,7 +88,6 @@ type Store interface {
 	GetAllHeartbeats(ctx context.Context) ([]*Heartbeat, error)
 	SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) error
 	RemoveHeartbeat(ctx context.Context, heartbeatID string) error
-	HandleAllExpiredHeartbeats(ctx context.Context, expireTS int64) ([]*StaleMessageUpdate, error)
 
 	// Retries
 	GetAllRetries(ctx context.Context) (*Retries, error)

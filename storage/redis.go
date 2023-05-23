@@ -59,7 +59,7 @@ func (r *redisStore) CheckRtt(ctx context.Context) int64 {
 }
 
 func (r *redisStore) getHeartbeat(ctx context.Context, heartbeatID string) (*Heartbeat, error) {
-	heartbeatProperties := []string{"beat", "quiet", "busy", "rtt_us", "rss", "info", "manager_priority", "active_manager"}
+	heartbeatProperties := []string{"beat", "quiet", "busy", "rtt_us", "rss", "info", "manager_priority", "active_manager", "worker_heartbeats"}
 	booleanProperties := []string{"quiet", "active_manager"}
 	managerKey := GetManagerKey(r.namespace, heartbeatID)
 	heartbeatPropertyValues, err := r.client.HMGet(ctx, managerKey, heartbeatProperties...).Result()
@@ -67,28 +67,35 @@ func (r *redisStore) getHeartbeat(ctx context.Context, heartbeatID string) (*Hea
 		return nil, err
 	}
 
-	heartbeatStrMap := make(map[string]string)
+	heartbeatMap := make(map[string]interface{})
 	hasPropertyValue := false
 	for i, heartbeatProperty := range heartbeatProperties {
 		if heartbeatPropertyValues[i] != nil {
-			heartbeatStrMap[heartbeatProperty] = heartbeatPropertyValues[i].(string)
+			heartbeatMap[heartbeatProperty] = heartbeatPropertyValues[i]
 			hasPropertyValue = true
 		}
 	}
 
 	for _, booleanProperty := range booleanProperties {
-		if heartbeatStrMap[booleanProperty] == "1" {
-			heartbeatStrMap[booleanProperty] = "true"
+		if heartbeatMap[booleanProperty] == "1" {
+			heartbeatMap[booleanProperty] = "true"
 		} else {
-			heartbeatStrMap[booleanProperty] = "false"
+			heartbeatMap[booleanProperty] = "false"
 		}
 	}
+
+	workerHeartbeats := []WorkerHeartbeat{}
+	err = json.Unmarshal([]byte(fmt.Sprintf("%v", heartbeatMap["worker_heartbeats"])), &workerHeartbeats)
+	if err != nil {
+		return nil, err
+	}
+	delete(heartbeatMap, "worker_heartbeats")
 
 	if !hasPropertyValue {
 		return nil, nil
 	}
 
-	heartbeatJson, err := json.Marshal(heartbeatStrMap)
+	heartbeatJson, err := json.Marshal(heartbeatMap)
 	if err != nil {
 		return nil, err
 	}
@@ -99,6 +106,7 @@ func (r *redisStore) getHeartbeat(ctx context.Context, heartbeatID string) (*Hea
 		return nil, err
 	}
 	heartbeat.Identity = heartbeatID
+	heartbeat.WorkerHeartbeats = workerHeartbeats
 	return &heartbeat, nil
 }
 
@@ -160,65 +168,6 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 	return nil
 }
 
-func (r *redisStore) HandleAllExpiredHeartbeats(ctx context.Context, expireTS int64) ([]*StaleMessageUpdate, error) {
-	heartbeatIDs, err := r.client.SMembers(ctx, GetProcessesKey(r.namespace)).Result()
-	if err != nil && err != redis.Nil {
-		return nil, err
-	}
-
-	var staleMessageUpdates []*StaleMessageUpdate
-	for _, heartbeatID := range heartbeatIDs {
-		managerKey := GetManagerKey(r.namespace, heartbeatID)
-		strHeartbeatTS, err := r.client.HGet(ctx, managerKey, "beat").Result()
-		if err != nil && err != redis.Nil {
-			return nil, err
-		}
-		heartbeatTS, err := strconv.Atoi(strHeartbeatTS)
-		if err != nil {
-			return nil, err
-		}
-		if int64(heartbeatTS) > expireTS {
-			continue
-		}
-		_, err = r.client.SRem(ctx, GetProcessesKey(r.namespace), heartbeatID).Result()
-		if err != nil {
-			return nil, err
-		}
-		strWorkerHeartbeats, err := r.client.HGet(ctx, managerKey, "worker_heartbeats").Result()
-		var workerHeartbeats []WorkerHeartbeat
-
-		err = json.Unmarshal([]byte(strWorkerHeartbeats), &workerHeartbeats)
-		if err != nil {
-			return nil, err
-		}
-
-		// requeue worker in-progress queues back to the queues
-		requeuedInProgressQueues := make(map[string]bool)
-		for _, workerHeartbeat := range workerHeartbeats {
-			var requeuedMsgs []string
-			if _, exists := requeuedInProgressQueues[workerHeartbeat.InProgressQueue]; exists {
-				continue
-			}
-			requeuedMsgs, err = r.RequeueMessagesFromInProgressQueue(ctx, workerHeartbeat.InProgressQueue, workerHeartbeat.Queue)
-			if err != nil {
-				return nil, err
-			}
-			requeuedInProgressQueues[workerHeartbeat.InProgressQueue] = true
-			if len(requeuedMsgs) == 0 {
-				continue
-			}
-			staleMessageUpdate := &StaleMessageUpdate{
-				Queue:           workerHeartbeat.Queue,
-				InprogressQueue: workerHeartbeat.InProgressQueue,
-				RequeuedMsgs:    requeuedMsgs,
-			}
-			staleMessageUpdates = append(staleMessageUpdates, staleMessageUpdate)
-		}
-
-	}
-	return staleMessageUpdates, nil
-}
-
 func (r *redisStore) getTaskRunnerID(pid int, tid string) string {
 	return fmt.Sprintf("%d-%s", pid, tid)
 }
@@ -247,6 +196,8 @@ func (r *redisStore) RemoveHeartbeat(ctx context.Context, heartbeatID string) er
 
 	workersKey := GetWorkersKey(managerKey)
 	pipe.Del(ctx, workersKey)
+
+	pipe.SRem(ctx, GetProcessesKey(r.namespace), heartbeatID)
 
 	_, err := pipe.Exec(ctx)
 	if err != nil && err != redis.Nil {

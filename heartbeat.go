@@ -41,7 +41,7 @@ type HeartbeatWorkerMsg struct {
 	EnqueuedAt int64  `json:"enqueued_at"`
 }
 
-type AfterHeartbeatFunc func(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*storage.StaleMessageUpdate) error
+type afterHeartbeatFunc func(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*staleMessageUpdate) error
 
 func GenerateProcessNonce() (string, error) {
 	bytes := make([]byte, 12)
@@ -72,38 +72,6 @@ func (m *Manager) buildHeartbeat(heartbeatTime time.Time, ttl time.Duration) (*s
 				Tid:             r.tid,
 				Queue:           w.queue,
 				InProgressQueue: w.inProgressQueue,
-			}
-			msg := r.inProgressMessage()
-			if msg != nil {
-				workerMsg := &HeartbeatWorkerMsg{
-					Retry:      1,
-					Queue:      w.queue,
-					Backtrace:  false,
-					Class:      msg.Class(),
-					Args:       msg.Args(),
-					Jid:        msg.Jid(),
-					CreatedAt:  msg.startedAt, // not actually started at
-					EnqueuedAt: heartbeatTime.Unix(),
-				}
-
-				jsonMsg, err := json.Marshal(workerMsg)
-				if err != nil {
-					return nil, err
-				}
-
-				msgWrapper := &HeartbeatWorkerMsgWrapper{
-					Tid:     r.tid,
-					Queue:   w.queue,
-					Payload: string(jsonMsg),
-					RunAt:   msg.startedAt,
-				}
-
-				jsonMsgWrapper, err := json.Marshal(msgWrapper)
-				if err != nil {
-					return nil, err
-				}
-
-				workerHeartbeat.WorkerMsg = string(jsonMsgWrapper)
 			}
 			workerHeartbeats = append(workerHeartbeats, workerHeartbeat)
 		}

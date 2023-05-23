@@ -383,7 +383,7 @@ func TestManager_Run_HeartbeatHandlesStaleInProgressMessages(t *testing.T) {
 	pollMgr1StartTime, err := mgr1.opts.store.GetTime(context.Background())
 	assert.NoError(t, err)
 	assertMgr1Heartbeat := false
-	mgr1.AddAfterHeartbeatHooks(func(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*storage.StaleMessageUpdate) error {
+	mgr1.addAfterHeartbeatHooks(func(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*staleMessageUpdate) error {
 		heartbeatTime := time.Unix(heartbeat.Beat, 0)
 		if !assertMgr1Heartbeat && heartbeatTime.Sub(pollMgr1StartTime) > assertMgr1HeartbeatTimeoutDuration {
 			assert.Fail(t, "mgr1 heartbeat timed out")
@@ -435,18 +435,18 @@ func TestManager_Run_HeartbeatHandlesStaleInProgressMessages(t *testing.T) {
 	pollMgr2StartTime, err := mgr2.opts.store.GetTime(context.Background())
 	assert.NoError(t, err)
 	assertMessageRequeued := make(chan bool)
-	mgr2.AddAfterHeartbeatHooks(func(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*storage.StaleMessageUpdate) error {
+	mgr2.addAfterHeartbeatHooks(func(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*staleMessageUpdate) error {
 		heartbeatTime := time.Unix(heartbeat.Beat, 0)
 		if heartbeatTime.Sub(pollMgr2StartTime) > mgr2.opts.Heartbeat.HeartbeatTTL*2 {
 			assert.Fail(t, "mgr2 timed out polling for requeued stale task runner")
 			assertMessageRequeued <- false
 		}
 		if len(staleMessageUpdates) > 0 {
-			for _, staleMessageUpdate := range staleMessageUpdates {
-				assert.Equal(t, "testqueue", staleMessageUpdate.Queue)
-				assert.Contains(t, staleMessageUpdate.InprogressQueue, "testqueue")
-				assert.Contains(t, staleMessageUpdate.InprogressQueue, "inprogress")
-				if len(staleMessageUpdate.RequeuedMsgs) > 0 {
+			for _, updatedStaleMessage := range staleMessageUpdates {
+				assert.Equal(t, "testqueue", updatedStaleMessage.Queue)
+				assert.Contains(t, updatedStaleMessage.InprogressQueue, "testqueue")
+				assert.Contains(t, updatedStaleMessage.InprogressQueue, "inprogress")
+				if len(updatedStaleMessage.RequeuedMsgs) > 0 {
 					// check if it has requeued messages, as heartbeat may have expired the other 2 task runners
 					// without messages instead
 					assert.Equal(t, 1, len(staleMessageUpdates[0].RequeuedMsgs))
@@ -521,7 +521,7 @@ func TestManager_Run_PrioritizedActiveManager(t *testing.T) {
 			assertedHeartbeat: false,
 		}
 
-		manager.AddAfterHeartbeatHooks(func(heartbeat *storage.Heartbeat, manager *Manager, requeuedTaskRunnersStatus []*storage.StaleMessageUpdate) error {
+		manager.addAfterHeartbeatHooks(func(heartbeat *storage.Heartbeat, manager *Manager, requeuedTaskRunnersStatus []*staleMessageUpdate) error {
 			if !managerConfig.assertedHeartbeat {
 				managerConfig.assertHeartbeat <- true
 			}
