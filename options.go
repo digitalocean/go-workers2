@@ -12,6 +12,12 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
+const (
+	defaultHeartbeatInterval = 5 * time.Second
+
+	defaultHeartbeatTTL = 60 * time.Second
+)
+
 // Options contains the set of configuration options for a manager and/or producer
 type Options struct {
 	ProcessID    string
@@ -28,15 +34,36 @@ type Options struct {
 	RedisTLSConfig  *tls.Config
 
 	// Optional display name used when displaying manager stats
-	ManagerDisplayName string
+	ManagerDisplayName   string
+	ManagerStartInactive bool
 
-	Heartbeat bool
+	// Define Heartbeat to enable heartbeat
+	Heartbeat *HeartbeatOptions
 
 	// Log
 	Logger *log.Logger
 
 	client *redis.Client
 	store  storage.Store
+}
+
+func (o *Options) Client() *redis.Client {
+	return o.client
+}
+
+type HeartbeatOptions struct {
+	// Optional heartbeat interval config
+	Interval time.Duration
+
+	// redis eviction ttl config
+	HeartbeatTTL time.Duration
+
+	PrioritizedManager *PrioritizedManagerOptions
+}
+
+type PrioritizedManagerOptions struct {
+	ManagerPriority     int
+	TotalActiveManagers int
 }
 
 func processOptions(options Options) (Options, error) {
@@ -84,6 +111,15 @@ func processOptions(options Options) (Options, error) {
 
 	redisStore := storage.NewRedisStore(options.Namespace, options.client, options.Logger)
 	options.store = redisStore
+
+	if options.Heartbeat != nil {
+		if options.Heartbeat.Interval <= 0 {
+			options.Heartbeat.Interval = defaultHeartbeatInterval
+		}
+		if options.Heartbeat.HeartbeatTTL <= 0 {
+			options.Heartbeat.HeartbeatTTL = defaultHeartbeatTTL
+		}
+	}
 
 	return options, nil
 }

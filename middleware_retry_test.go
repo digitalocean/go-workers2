@@ -40,7 +40,7 @@ func TestRetryQueue(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts, err := setupTestOptionsWithNamespace("prod")
+			opts, err := SetupDefaultTestOptionsWithNamespace("prod")
 			assert.NoError(t, err)
 
 			mgr := &Manager{opts: opts}
@@ -58,7 +58,7 @@ func TestRetryQueue(t *testing.T) {
 func TestDisableRetries(t *testing.T) {
 	ctx := context.Background()
 
-	opts, err := setupTestOptionsWithNamespace("prod")
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
 
 	mgr := &Manager{opts: opts}
@@ -74,7 +74,7 @@ func TestDisableRetries(t *testing.T) {
 func TestNoDefaultRetry(t *testing.T) {
 	ctx := context.Background()
 
-	opts, err := setupTestOptionsWithNamespace("prod")
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
 
 	mgr := &Manager{opts: opts}
@@ -91,7 +91,7 @@ func TestNoDefaultRetry(t *testing.T) {
 func TestNumericRetries(t *testing.T) {
 	ctx := context.Background()
 
-	opts, err := setupTestOptionsWithNamespace("prod")
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
 
 	mgr := &Manager{opts: opts}
@@ -107,7 +107,7 @@ func TestNumericRetries(t *testing.T) {
 func TestHandleNewFailedMessages(t *testing.T) {
 	ctx := context.Background()
 
-	opts, err := setupTestOptionsWithNamespace("prod")
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
 
 	mgr := &Manager{opts: opts}
@@ -139,7 +139,7 @@ func TestHandleNewFailedMessages(t *testing.T) {
 func TestRecurringFailedMessages(t *testing.T) {
 	ctx := context.Background()
 
-	opts, err := setupTestOptionsWithNamespace("prod")
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
 
 	mgr := &Manager{opts: opts}
@@ -169,7 +169,7 @@ func TestRecurringFailedMessages(t *testing.T) {
 func TestRecurringFailedMessagesWithMax(t *testing.T) {
 	ctx := context.Background()
 
-	opts, err := setupTestOptionsWithNamespace("prod")
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
 
 	mgr := &Manager{opts: opts}
@@ -199,7 +199,7 @@ func TestRecurringFailedMessagesWithMax(t *testing.T) {
 func TestRetryOnlyToMax(t *testing.T) {
 	ctx := context.Background()
 
-	opts, err := setupTestOptionsWithNamespace("prod")
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
 
 	mgr := &Manager{opts: opts}
@@ -215,7 +215,7 @@ func TestRetryOnlyToMax(t *testing.T) {
 func TestRetryMaxCallsRetryExhaustionHandler(t *testing.T) {
 	ctx := context.Background()
 
-	opts, err := setupTestOptionsWithNamespace("prod")
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
 
 	mgr := &Manager{opts: opts}
@@ -244,7 +244,7 @@ func TestRetryMaxCallsRetryExhaustionHandler(t *testing.T) {
 func TestRetryOnlyToCustomMax(t *testing.T) {
 	ctx := context.Background()
 
-	opts, err := setupTestOptionsWithNamespace("prod")
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
 
 	mgr := &Manager{opts: opts}

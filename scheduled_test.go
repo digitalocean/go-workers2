@@ -12,7 +12,7 @@ import (
 func TestScheduled(t *testing.T) {
 	ctx := context.Background()
 
-	opts, err := setupTestOptionsWithNamespace("prod")
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
 	assert.NoError(t, err)
 
 	scheduled := newScheduledWorker(opts)

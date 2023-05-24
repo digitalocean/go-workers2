@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
@@ -57,39 +58,109 @@ func (r *redisStore) CheckRtt(ctx context.Context) int64 {
 	return ellapsed.Microseconds()
 }
 
-var sidekiqHeartbeatJobsKey = ":work"
+func (r *redisStore) getHeartbeat(ctx context.Context, heartbeatID string) (*Heartbeat, error) {
+	heartbeatProperties := []string{"beat", "quiet", "busy", "rtt_us", "rss", "info", "manager_priority", "active_manager", "worker_heartbeats"}
+	booleanProperties := []string{"quiet", "active_manager"}
+	managerKey := GetManagerKey(r.namespace, heartbeatID)
+	heartbeatPropertyValues, err := r.client.HMGet(ctx, managerKey, heartbeatProperties...).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	heartbeatMap := make(map[string]interface{})
+	hasPropertyValue := false
+	for i, heartbeatProperty := range heartbeatProperties {
+		if heartbeatPropertyValues[i] != nil {
+			heartbeatMap[heartbeatProperty] = heartbeatPropertyValues[i]
+			hasPropertyValue = true
+		}
+	}
+
+	for _, booleanProperty := range booleanProperties {
+		if heartbeatMap[booleanProperty] == "1" {
+			heartbeatMap[booleanProperty] = "true"
+		} else {
+			heartbeatMap[booleanProperty] = "false"
+		}
+	}
+
+	workerHeartbeats := []WorkerHeartbeat{}
+	err = json.Unmarshal([]byte(fmt.Sprintf("%v", heartbeatMap["worker_heartbeats"])), &workerHeartbeats)
+	if err != nil {
+		return nil, err
+	}
+	delete(heartbeatMap, "worker_heartbeats")
+
+	if !hasPropertyValue {
+		return nil, nil
+	}
+
+	heartbeatJson, err := json.Marshal(heartbeatMap)
+	if err != nil {
+		return nil, err
+	}
+
+	heartbeat := Heartbeat{}
+	err = json.Unmarshal(heartbeatJson, &heartbeat)
+	if err != nil {
+		return nil, err
+	}
+	heartbeat.Identity = heartbeatID
+	heartbeat.WorkerHeartbeats = workerHeartbeats
+	return &heartbeat, nil
+}
+
+func (r *redisStore) GetAllHeartbeats(ctx context.Context) ([]*Heartbeat, error) {
+	var heartbeats []*Heartbeat
+
+	heartbeatIDs, err := r.getHeartbeatIDs(ctx)
+	if len(heartbeatIDs) == 0 {
+		return nil, err
+	}
+	for _, heartbeatID := range heartbeatIDs {
+		heartbeat, err := r.getHeartbeat(ctx, heartbeatID)
+		if err != nil {
+			return nil, err
+		}
+		if heartbeat != nil {
+			heartbeats = append(heartbeats, heartbeat)
+		}
+	}
+	return heartbeats, nil
+}
+
+func (r *redisStore) getHeartbeatIDs(ctx context.Context) ([]string, error) {
+	heartbeatIDs, err := r.client.SMembers(ctx, GetProcessesKey(r.namespace)).Result()
+	if err != nil && err != redis.Nil {
+		return nil, err
+	}
+	return heartbeatIDs, nil
+}
 
 func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) error {
-
 	pipe := r.client.Pipeline()
 	rtt := r.CheckRtt(ctx)
 
-	managerIdentity := r.namespace + heartbeat.Identity
-	sidekiqProcessesKey := r.namespace + "processes"
+	managerKey := GetManagerKey(r.namespace, heartbeat.Identity)
+	pipe.SAdd(ctx, GetProcessesKey(r.namespace), heartbeat.Identity) // add to the sidekiq processes set without the namespace
 
-	pipe.SAdd(ctx, sidekiqProcessesKey, heartbeat.Identity) // add to the sidekiq processes set without the namespace
-
-	pipe.HSet(ctx, managerIdentity, "beat", heartbeat.Beat.UTC().Unix())
-	pipe.HSet(ctx, managerIdentity, "quiet", heartbeat.Quiet)
-	pipe.HSet(ctx, managerIdentity, "busy", heartbeat.Busy)
-	pipe.HSet(ctx, managerIdentity, "rtt_us", rtt)
-	pipe.HSet(ctx, managerIdentity, "rss", heartbeat.RSS)
-	pipe.HSet(ctx, managerIdentity, "info", heartbeat.Info)
-	pipe.Expire(ctx, managerIdentity, 60*time.Second) // set the TTL of the heartbeat to 60
-
-	workersKey := managerIdentity + sidekiqHeartbeatJobsKey
-
-	pipe.Del(ctx, workersKey)
-
-	for tid, msg := range heartbeat.WorkerMessages {
-		// fake the sidekiq thread id
-		fakeThreadId := fmt.Sprintf("%d-%s", heartbeat.Pid, tid)
-		pipe.HSet(ctx, workersKey, fakeThreadId, msg)
+	workerHeartbeats, err := json.Marshal(heartbeat.WorkerHeartbeats)
+	if err != nil {
+		return err
 	}
 
-	pipe.Expire(ctx, workersKey, 60*time.Second)
+	pipe.HMSet(ctx, managerKey,
+		"beat", heartbeat.Beat,
+		"quiet", heartbeat.Quiet,
+		"busy", heartbeat.Busy,
+		"rtt_us", rtt,
+		"rss", heartbeat.RSS,
+		"info", heartbeat.Info,
+		"manager_priority", heartbeat.ManagerPriority,
+		"active_manager", heartbeat.ActiveManager,
+		"worker_heartbeats", workerHeartbeats)
 
-	_, err := pipe.Exec(ctx)
+	_, err = pipe.Exec(ctx)
 	if err != nil && err != redis.Nil {
 		return err
 	}
@@ -97,14 +168,36 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 	return nil
 }
 
-func (r *redisStore) RemoveHeartbeat(ctx context.Context, heartbeat *Heartbeat) error {
-	managerIdentity := r.namespace + heartbeat.Identity
+func (r *redisStore) getTaskRunnerID(pid int, tid string) string {
+	return fmt.Sprintf("%d-%s", pid, tid)
+}
+
+func (r *redisStore) RequeueMessagesFromInProgressQueue(ctx context.Context, inprogressQueue, queue string) ([]string, error) {
+	var requeuedMsgs []string
+	for {
+		msg, err := r.client.BRPopLPush(ctx, r.getQueueName(inprogressQueue), r.getQueueName(queue), 1*time.Second).Result()
+
+		if err != nil {
+			if err == redis.Nil {
+				break
+			}
+			return requeuedMsgs, err
+		}
+		requeuedMsgs = append(requeuedMsgs, msg)
+	}
+	return requeuedMsgs, nil
+}
+
+func (r *redisStore) RemoveHeartbeat(ctx context.Context, heartbeatID string) error {
+	managerKey := GetManagerKey(r.namespace, heartbeatID)
 
 	pipe := r.client.Pipeline()
-	pipe.Del(ctx, managerIdentity)
+	pipe.Del(ctx, managerKey)
 
-	workersKey := managerIdentity + sidekiqHeartbeatJobsKey
+	workersKey := GetWorkersKey(managerKey)
 	pipe.Del(ctx, workersKey)
+
+	pipe.SRem(ctx, GetProcessesKey(r.namespace), heartbeatID)
 
 	_, err := pipe.Exec(ctx)
 	if err != nil && err != redis.Nil {
@@ -294,4 +387,8 @@ func (r *redisStore) IncrementStats(ctx context.Context, metric string) error {
 
 func (r *redisStore) getQueueName(queue string) string {
 	return r.namespace + "queue:" + queue
+}
+
+func (r *redisStore) GetTime(ctx context.Context) (time.Time, error) {
+	return r.client.Time(ctx).Result()
 }

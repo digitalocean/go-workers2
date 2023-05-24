@@ -6,12 +6,13 @@ import (
 	"log"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestBuildHeartbeat(t *testing.T) {
 	namespace := "prod"
 	opts := testOptionsWithNamespace(namespace)
-	mgr, err := newTestManager(opts)
+	mgr, err := newTestManager(opts, true)
 	assert.NoError(t, err)
 
 	mgr.AddWorker("somequeue", 5, func(m *Msg) error {
@@ -22,7 +23,7 @@ func TestBuildHeartbeat(t *testing.T) {
 		return nil
 	})
 
-	heartbeat, err := mgr.buildHeartbeat()
+	heartbeat, err := mgr.buildHeartbeat(time.Now().UTC(), time.Second)
 	assert.Nil(t, err)
 
 	hostname, _ := os.Hostname()
@@ -44,13 +45,12 @@ func TestBuildHeartbeat(t *testing.T) {
 func TestBuildHeartbeatWorkerMessage(t *testing.T) {
 	namespace := "prod"
 	opts := testOptionsWithNamespace(namespace)
-	mgr, err := newTestManager(opts)
+	mgr, err := newTestManager(opts, true)
 	assert.NoError(t, err)
 
 	mgr.AddWorker("somequeue", 1, func(m *Msg) error {
 		return nil
 	})
-
 	msg, err := NewMsg("{\"class\":\"MyWorker\",\"jid\":\"jid-123\"}")
 
 	testLogger := log.New(os.Stdout, "test-go-workers2: ", log.Ldate|log.Lmicroseconds)
@@ -62,30 +62,17 @@ func TestBuildHeartbeatWorkerMessage(t *testing.T) {
 	tr.currentMsg = msg
 
 	firstWorker := mgr.workers[0]
+	firstWorker.inProgressQueue = "testinprogressqueue"
 	firstWorker.runners = []*taskRunner{tr}
 
-	heartbeat, err := mgr.buildHeartbeat()
+	heartbeat, err := mgr.buildHeartbeat(time.Now().UTC(), time.Second)
 	assert.Nil(t, err)
 
-	workerMessages := heartbeat.WorkerMessages
-
-	assert.Equal(t, 1, len(workerMessages))
-
-	var workerValue string
-
-	for _, v := range workerMessages {
-		workerValue = v
+	assert.Equal(t, 1, len(heartbeat.WorkerHeartbeats))
+	for _, v := range heartbeat.WorkerHeartbeats {
+		assert.Equal(t, firstWorker.queue, v.Queue)
+		assert.Equal(t, firstWorker.inProgressQueue, v.InProgressQueue)
+		assert.Equal(t, tr.tid, v.Tid)
+		assert.Nil(t, err)
 	}
-
-	var decodedWorkerMsgWrapper map[string]interface{}
-
-	err = json.Unmarshal([]byte(workerValue), &decodedWorkerMsgWrapper)
-	assert.Nil(t, err)
-
-	var decodedWorkerMsgPayload map[string]interface{}
-
-	err = json.Unmarshal([]byte(decodedWorkerMsgWrapper["payload"].(string)), &decodedWorkerMsgPayload)
-
-	assert.Equal(t, "somequeue", decodedWorkerMsgWrapper["queue"])
-	assert.Equal(t, "MyWorker", decodedWorkerMsgPayload["class"])
 }

@@ -14,7 +14,7 @@ func TestProcessedStats(t *testing.T) {
 	ctx := context.Background()
 
 	namespace := "prod"
-	opts, err := setupTestOptionsWithNamespace(namespace)
+	opts, err := SetupDefaultTestOptionsWithNamespace(namespace)
 	assert.NoError(t, err)
 
 	mgr := &Manager{opts: opts}
@@ -49,7 +49,7 @@ func TestFailedStats(t *testing.T) {
 	ctx := context.Background()
 
 	namespace := "prod"
-	opts, err := setupTestOptionsWithNamespace(namespace)
+	opts, err := SetupDefaultTestOptionsWithNamespace(namespace)
 	assert.NoError(t, err)
 
 	mgr := &Manager{opts: opts}

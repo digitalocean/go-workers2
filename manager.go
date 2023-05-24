@@ -4,9 +4,11 @@ import (
 	"context"
 	"log"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
+	"github.com/digitalocean/go-workers2/storage"
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 )
@@ -20,15 +22,33 @@ type Manager struct {
 	lock             sync.Mutex
 	signal           chan os.Signal
 	running          bool
+	stop             chan bool
+	active           bool
 	logger           *log.Logger
 	startedAt        time.Time
 	processNonce     string
 	heartbeatChannel chan bool
 
-	beforeStartHooks []func()
-	duringDrainHooks []func()
+	beforeStartHooks       []func()
+	duringDrainHooks       []func()
+	afterActiveChangeHooks []AfterActiveChangeFunc
+
+	afterHeartbeatHooks []afterHeartbeatFunc
 
 	retriesExhaustedHandlers []RetriesExhaustedFunc
+}
+
+type staleMessageUpdate struct {
+	Queue           string
+	InprogressQueue string
+	RequeuedMsgs    []string
+}
+
+type AfterActiveChangeFunc func(manager *Manager, activateManager, deactivateManager bool)
+
+type UpdateActiveManager struct {
+	ActivateManager   bool
+	DeactivateManager bool
 }
 
 // NewManager creates a new manager with provide options
@@ -37,18 +57,12 @@ func NewManager(options Options) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newManager(options)
+}
 
-	processNonce, err := GenerateProcessNonce()
-	if err != nil {
-		return nil, err
-	}
-
-	return &Manager{
-		uuid:         uuid.New().String(),
-		logger:       options.Logger,
-		opts:         options,
-		processNonce: processNonce,
-	}, nil
+// GetRedisClient returns the Redis client used by the manager
+func (m *Manager) GetRedisClient() *redis.Client {
+	return m.opts.client
 }
 
 // NewManagerWithRedisClient creates a new manager with provide options and pre-configured Redis client
@@ -57,23 +71,26 @@ func NewManagerWithRedisClient(options Options, client *redis.Client) (*Manager,
 	if err != nil {
 		return nil, err
 	}
+	return newManager(options)
+}
 
+func newManager(processedOptions Options) (*Manager, error) {
 	processNonce, err := GenerateProcessNonce()
 	if err != nil {
 		return nil, err
 	}
 
-	return &Manager{
+	manager := &Manager{
 		uuid:         uuid.New().String(),
-		logger:       options.Logger,
-		opts:         options,
+		logger:       processedOptions.Logger,
+		opts:         processedOptions,
 		processNonce: processNonce,
-	}, nil
-}
-
-// GetRedisClient returns the Redis client used by the manager
-func (m *Manager) GetRedisClient() *redis.Client {
-	return m.opts.client
+		active:       !processedOptions.ManagerStartInactive,
+	}
+	if processedOptions.Heartbeat != nil && processedOptions.Heartbeat.PrioritizedManager != nil {
+		manager.addAfterHeartbeatHooks(activateManagerByPriority)
+	}
+	return manager, nil
 }
 
 // AddWorker adds a new job processing worker
@@ -102,6 +119,18 @@ func (m *Manager) AddDuringDrainHooks(hooks ...func()) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.duringDrainHooks = append(m.duringDrainHooks, hooks...)
+}
+
+func (m *Manager) addAfterHeartbeatHooks(hooks ...afterHeartbeatFunc) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.afterHeartbeatHooks = append(m.afterHeartbeatHooks, hooks...)
+}
+
+func (m *Manager) AddAfterActiveChangeHooks(hooks ...AfterActiveChangeFunc) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.afterActiveChangeHooks = append(m.afterActiveChangeHooks, hooks...)
 }
 
 // SetRetriesExhaustedHandlers sets function(s) that will be sequentially executed when retries are exhausted for a job.
@@ -148,7 +177,8 @@ func (m *Manager) Run() {
 	for i := range m.workers {
 		w := m.workers[i]
 		go func() {
-			w.start(newSimpleFetcher(w.queue, m.opts))
+			fetcher := newSimpleFetcher(w.queue, *m.Opts(), m.IsActive())
+			w.start(fetcher)
 			wg.Done()
 		}()
 	}
@@ -160,7 +190,7 @@ func (m *Manager) Run() {
 		wg.Done()
 	}()
 
-	if m.opts.Heartbeat {
+	if m.opts.Heartbeat != nil {
 		go m.startHeartbeat()
 	}
 
@@ -180,8 +210,8 @@ func (m *Manager) Stop() {
 	if !m.running {
 		return
 	}
-	if m.opts.Heartbeat {
-		m.removeHeartbeat()
+	if m.opts.Heartbeat != nil {
+		m.stopHeartbeat()
 	}
 	for _, w := range m.workers {
 		w.quit()
@@ -191,6 +221,10 @@ func (m *Manager) Stop() {
 		h()
 	}
 	m.stopSignalHandler()
+}
+
+func (m *Manager) Opts() *Options {
+	return &m.opts
 }
 
 func (m *Manager) inProgressMessages() map[string][]*Msg {
@@ -276,46 +310,143 @@ func (m *Manager) GetRetries(page uint64, pageSize int64, match string) (Retries
 }
 
 func (m *Manager) startHeartbeat() error {
-	err := m.sendHeartbeat()
-	if err != nil {
-		m.logger.Println("Failed to send heartbeat", err)
-		return err
-	}
-
-	heartbeatTicker := time.NewTicker(5 * time.Second)
+	heartbeatTicker := time.NewTicker(m.opts.Heartbeat.Interval)
 	m.heartbeatChannel = make(chan bool, 1)
 
 	for {
 		select {
 		case <-heartbeatTicker.C:
-			err := m.sendHeartbeat()
+			heartbeatTime, err := m.opts.store.GetTime(context.Background())
 			if err != nil {
-				m.logger.Println("Failed to send heartbeat", err)
+				m.logger.Println("ERR: Failed to get heartbeat time", err)
 				return err
+			}
+			heartbeat, err := m.sendHeartbeat(heartbeatTime)
+			if err != nil {
+				m.logger.Println("ERR: Failed to send heartbeat", err)
+				return err
+			}
+			expireTS := heartbeatTime.Add(-m.opts.Heartbeat.HeartbeatTTL).Unix()
+			staleMessageUpdates, err := m.handleAllExpiredHeartbeats(context.Background(), expireTS)
+			if err != nil {
+				m.logger.Println("ERR: error expiring heartbeat identities", err)
+				return err
+			}
+			for _, afterHeartbeatHook := range m.afterHeartbeatHooks {
+				err := afterHeartbeatHook(heartbeat, m, staleMessageUpdates)
+				if err != nil {
+					m.logger.Println("ERR: Failed to execute after heartbeat hook", err)
+					return err
+				}
 			}
 		case <-m.heartbeatChannel:
 			return nil
 		}
 	}
-	return nil
 }
 
-func (m *Manager) removeHeartbeat() error {
-	m.heartbeatChannel <- true
-	heartbeat, err := m.buildHeartbeat()
-	if err != nil {
-		return err
+func (m *Manager) handleAllExpiredHeartbeats(ctx context.Context, expireTS int64) ([]*staleMessageUpdate, error) {
+	heartbeats, err := m.opts.store.GetAllHeartbeats(ctx)
+	if err != nil && err != redis.Nil {
+		return nil, err
 	}
-	err = m.opts.store.RemoveHeartbeat(context.Background(), heartbeat)
-	return err
+
+	var staleMessageUpdates []*staleMessageUpdate
+	for _, heartbeat := range heartbeats {
+		if heartbeat.Beat > expireTS {
+			continue
+		}
+
+		// requeue worker in-progress queues back to the queues
+		requeuedInProgressQueues := make(map[string]bool)
+		for _, workerHeartbeat := range heartbeat.WorkerHeartbeats {
+			var requeuedMsgs []string
+			if _, exists := requeuedInProgressQueues[workerHeartbeat.InProgressQueue]; exists {
+				continue
+			}
+			requeuedMsgs, err = m.opts.store.RequeueMessagesFromInProgressQueue(ctx, workerHeartbeat.InProgressQueue, workerHeartbeat.Queue)
+			if err != nil {
+				return nil, err
+			}
+			requeuedInProgressQueues[workerHeartbeat.InProgressQueue] = true
+			if len(requeuedMsgs) == 0 {
+				continue
+			}
+			updatedStaleMessage := &staleMessageUpdate{
+				Queue:           workerHeartbeat.Queue,
+				InprogressQueue: workerHeartbeat.InProgressQueue,
+				RequeuedMsgs:    requeuedMsgs,
+			}
+			staleMessageUpdates = append(staleMessageUpdates, updatedStaleMessage)
+		}
+		err = m.opts.store.RemoveHeartbeat(ctx, heartbeat.Identity)
+		if err != nil {
+			return nil, err
+		}
+
+	}
+	return staleMessageUpdates, nil
 }
 
-func (m *Manager) sendHeartbeat() error {
-	heartbeat, err := m.buildHeartbeat()
+func (m *Manager) IsActive() bool {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	return m.active
+}
+
+func (m *Manager) Active(active bool) {
+	isActive := m.IsActive()
+	activateManager := !isActive && active
+	deactivateManager := isActive && !active
+	if activateManager || deactivateManager {
+		m.lock.Lock()
+		m.active = active
+		for _, worker := range m.workers {
+			worker.fetcher.SetActive(active)
+		}
+		m.lock.Unlock()
+		for _, hook := range m.afterActiveChangeHooks {
+			hook(m, activateManager, deactivateManager)
+		}
+	}
+}
+
+func (m *Manager) stopHeartbeat() {
+	m.heartbeatChannel <- true
+}
+
+func (m *Manager) sendHeartbeat(heartbeatTime time.Time) (*storage.Heartbeat, error) {
+	heartbeat, err := m.buildHeartbeat(heartbeatTime, m.opts.Heartbeat.HeartbeatTTL)
 	if err != nil {
-		return err
+		return heartbeat, err
 	}
 
 	err = m.opts.store.SendHeartbeat(context.Background(), heartbeat)
-	return err
+	return heartbeat, err
+}
+
+func activateManagerByPriority(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*staleMessageUpdate) error {
+	ctx := context.Background()
+	heartbeats, err := manager.opts.store.GetAllHeartbeats(ctx)
+	if err != nil {
+		return err
+	}
+	if len(heartbeats) == 0 {
+		return nil
+	}
+	// order active heartbeats by manager priority descending
+	sort.Slice(heartbeats, func(i, j int) bool {
+		return heartbeats[i].ManagerPriority > heartbeats[j].ManagerPriority
+	})
+
+	// if current manager's priority is high enough to be within total active manager threshold, set manager as active
+	activeManager := false
+	for i := 0; i < manager.opts.Heartbeat.PrioritizedManager.TotalActiveManagers; i++ {
+		if heartbeats[i].Identity == heartbeat.Identity {
+			activeManager = true
+			break
+		}
+	}
+	manager.Active(activeManager)
+	return nil
 }

@@ -10,27 +10,43 @@ import (
 )
 
 type dummyFetcher struct {
-	queue       func() string
-	fetch       func()
-	acknowledge func(*Msg)
-	ready       func() chan bool
-	messages    func() chan *Msg
-	close       func()
-	closed      func() bool
+	lock     sync.Mutex
+	isActive bool
+
+	inProgressQueue func() string
+	queue           func() string
+	fetch           func()
+	acknowledge     func(*Msg)
+	ready           func() chan bool
+	messages        func() chan *Msg
+	close           func()
+	closed          func() bool
 }
 
-func (d dummyFetcher) Queue() string       { return d.queue() }
-func (d dummyFetcher) Fetch()              { d.fetch() }
-func (d dummyFetcher) Acknowledge(m *Msg)  { d.acknowledge(m) }
-func (d dummyFetcher) Ready() chan bool    { return d.ready() }
-func (d dummyFetcher) Messages() chan *Msg { return d.messages() }
-func (d dummyFetcher) Close()              { d.close() }
-func (d dummyFetcher) Closed() bool        { return d.closed() }
+func (d dummyFetcher) Queue() string           { return d.queue() }
+func (d dummyFetcher) InProgressQueue() string { return d.inProgressQueue() }
+func (d dummyFetcher) Fetch()                  { d.fetch() }
+func (d dummyFetcher) Acknowledge(m *Msg)      { d.acknowledge(m) }
+func (d dummyFetcher) Ready() chan bool        { return d.ready() }
+func (d dummyFetcher) Messages() chan *Msg     { return d.messages() }
+func (d dummyFetcher) Close()                  { d.close() }
+func (d dummyFetcher) Closed() bool            { return d.closed() }
+
+func (d dummyFetcher) SetActive(active bool) {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+	d.isActive = active
+}
+func (d dummyFetcher) IsActive() bool {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+	return d.isActive
+}
 
 func TestNewWorker(t *testing.T) {
 	testLogger := log.New(os.Stdout, "test-go-workers2: ", log.Ldate|log.Lmicroseconds)
 
-	cc := newCallCounter()
+	cc := NewCallCounter()
 	w := newWorker(testLogger, "q", 0, cc.F)
 	assert.Equal(t, "q", w.queue)
 	assert.Equal(t, 1, w.concurrency)
@@ -58,11 +74,12 @@ func TestWorker(t *testing.T) {
 	var dfClosedLock sync.Mutex
 	var dfClosed bool
 	df := dummyFetcher{
-		queue:       func() string { return "q" },
-		fetch:       func() { close(fetchCh) },
-		acknowledge: func(m *Msg) { ackCh <- m },
-		ready:       func() chan bool { return readyCh },
-		messages:    func() chan *Msg { return msgCh },
+		inProgressQueue: func() string { return "inprog-q" },
+		queue:           func() string { return "q" },
+		fetch:           func() { close(fetchCh) },
+		acknowledge:     func(m *Msg) { ackCh <- m },
+		ready:           func() chan bool { return readyCh },
+		messages:        func() chan *Msg { return msgCh },
 		close: func() {
 			dfClosedLock.Lock()
 			defer dfClosedLock.Unlock()
@@ -75,7 +92,7 @@ func TestWorker(t *testing.T) {
 		},
 	}
 
-	cc := newCallCounter()
+	cc := NewCallCounter()
 
 	w := newWorker(testLogger, "q", 2, cc.F)
 
@@ -100,6 +117,7 @@ func TestWorker(t *testing.T) {
 
 	assert.True(t, w.running)
 	assert.Len(t, w.runners, 2)
+	assert.Equal(t, w.inProgressQueue, df.InProgressQueue())
 
 	t.Run("cannot start while running", func(t *testing.T) {
 		w.start(df)
@@ -144,19 +162,19 @@ func TestWorker(t *testing.T) {
 
 func TestWorkerProcessesAndAcksMessages(t *testing.T) {
 	testLogger := log.New(os.Stdout, "test-go-workers2: ", log.Ldate|log.Lmicroseconds)
-
 	readyCh := make(chan bool)
 	msgCh := make(chan *Msg)
 	ackCh := make(chan *Msg)
 	closeCh := make(chan bool)
 
 	df := dummyFetcher{
-		queue:       func() string { return "q" },
-		fetch:       func() { <-closeCh },
-		acknowledge: func(m *Msg) { ackCh <- m },
-		ready:       func() chan bool { return readyCh },
-		messages:    func() chan *Msg { return msgCh },
-		close:       func() { close(closeCh) },
+		queue:           func() string { return "q" },
+		inProgressQueue: func() string { return "inprog-q" },
+		fetch:           func() { <-closeCh },
+		acknowledge:     func(m *Msg) { ackCh <- m },
+		ready:           func() chan bool { return readyCh },
+		messages:        func() chan *Msg { return msgCh },
+		close:           func() { close(closeCh) },
 		closed: func() bool {
 			select {
 			case <-closeCh:
@@ -167,7 +185,7 @@ func TestWorkerProcessesAndAcksMessages(t *testing.T) {
 		},
 	}
 
-	cc := newCallCounter()
+	cc := NewCallCounter()
 	w := newWorker(testLogger, "q", 1, cc.F)
 
 	var wg sync.WaitGroup

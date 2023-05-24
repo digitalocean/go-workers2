@@ -37,17 +37,28 @@ type Retries struct {
 
 // Heartbeat is used for the ruby sidekiq web ui
 type Heartbeat struct {
-	Identity string
+	Identity string `json:"identity"`
 
-	Beat  time.Time
-	Quiet bool
-	Busy  int
-	RttUS int
-	RSS   int64
-	Info  string
-	Pid   int
+	Beat            int64  `json:"beat,string"`
+	Quiet           bool   `json:"quiet,string"`
+	Busy            int    `json:"busy,string"`
+	RttUS           int    `json:"rtt_us,string"`
+	RSS             int64  `json:"rss,string"`
+	Info            string `json:"info"`
+	Pid             int    `json:"pid,string"`
+	ManagerPriority int    `json:"manager_priority,string"`
+	ActiveManager   bool   `json:"active_manager,string"`
 
-	WorkerMessages map[string]string
+	Ttl time.Duration
+
+	WorkerHeartbeats []WorkerHeartbeat `json:"-"`
+}
+
+type WorkerHeartbeat struct {
+	Pid             int    `json:"pid,string"`
+	Tid             string `json:"tid,string"`
+	Queue           string `json:"queue,string"`
+	InProgressQueue string `json:"in_progress_queue,string"`
 }
 
 // Store is the interface for storing and retrieving data
@@ -60,6 +71,7 @@ type Store interface {
 	EnqueueMessage(ctx context.Context, queue string, priority float64, message string) error
 	EnqueueMessageNow(ctx context.Context, queue string, message string) error
 	DequeueMessage(ctx context.Context, queue string, inprogressQueue string, timeout time.Duration) (string, error)
+	RequeueMessagesFromInProgressQueue(ctx context.Context, inprogressQueue, queue string) ([]string, error)
 
 	// Special purpose queue operations
 	EnqueueScheduledMessage(ctx context.Context, priority float64, message string) error
@@ -73,9 +85,13 @@ type Store interface {
 	GetAllStats(ctx context.Context, queues []string) (*Stats, error)
 
 	// Heartbeat
+	GetAllHeartbeats(ctx context.Context) ([]*Heartbeat, error)
 	SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) error
-	RemoveHeartbeat(ctx context.Context, heartbeat *Heartbeat) error
+	RemoveHeartbeat(ctx context.Context, heartbeatID string) error
 
 	// Retries
 	GetAllRetries(ctx context.Context) (*Retries, error)
+
+	// Storage Server Time
+	GetTime(ctx context.Context) (time.Time, error)
 }

@@ -15,7 +15,7 @@ func TestProducer_Enqueue(t *testing.T) {
 	ctx := context.Background()
 
 	namespace := "prod"
-	opts, err := setupTestOptionsWithNamespace(namespace)
+	opts, err := SetupDefaultTestOptionsWithNamespace(namespace)
 	assert.NoError(t, err)
 	rc := opts.client
 
@@ -94,7 +94,7 @@ func TestProducer_EnqueueIn(t *testing.T) {
 	ctx := context.Background()
 
 	namespace := "prod"
-	opts, err := setupTestOptionsWithNamespace(namespace)
+	opts, err := SetupDefaultTestOptionsWithNamespace(namespace)
 	assert.NoError(t, err)
 	rc := opts.client
 
@@ -131,7 +131,7 @@ func TestMultipleEnqueueOrder(t *testing.T) {
 	ctx := context.Background()
 
 	namespace := "prod"
-	opts, err := setupTestOptionsWithNamespace(namespace)
+	opts, err := SetupDefaultTestOptionsWithNamespace(namespace)
 	assert.NoError(t, err)
 	rc := opts.client
 

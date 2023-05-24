@@ -5,16 +5,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/digitalocean/go-workers2/storage"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/digitalocean/go-workers2/storage"
 )
 
 type HeartbeatInfo struct {
 	Hostname    string   `json:"hostname"`
 	StartedAt   int64    `json:"started_at"`
-	Pid         int      `json:"pid"`
+	Pid         int      `json:"Pid"`
 	Tag         string   `json:"tag"`
 	Concurrency int      `json:"concurrency"`
 	Queues      []string `json:"queues"`
@@ -23,15 +24,15 @@ type HeartbeatInfo struct {
 }
 
 type HeartbeatWorkerMsgWrapper struct {
-	Queue   string `json:"queue"`
+	Queue   string `json:"Queue"`
 	Payload string `json:"payload"`
 	RunAt   int64  `json:"run_at"`
-	Tid     string `json:"tid"`
+	Tid     string `json:"Tid"`
 }
 
 type HeartbeatWorkerMsg struct {
 	Retry      int    `json:"retry"`
-	Queue      string `json:"queue"`
+	Queue      string `json:"Queue"`
 	Backtrace  bool   `json:"backtrace"`
 	Class      string `json:"class"`
 	Args       *Args  `json:"args"`
@@ -39,6 +40,8 @@ type HeartbeatWorkerMsg struct {
 	CreatedAt  int64  `json:"created_at"`
 	EnqueuedAt int64  `json:"enqueued_at"`
 }
+
+type afterHeartbeatFunc func(heartbeat *storage.Heartbeat, manager *Manager, staleMessageUpdates []*staleMessageUpdate) error
 
 func GenerateProcessNonce() (string, error) {
 	bytes := make([]byte, 12)
@@ -48,13 +51,14 @@ func GenerateProcessNonce() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-func (m *Manager) buildHeartbeat() (*storage.Heartbeat, error) {
+func (m *Manager) buildHeartbeat(heartbeatTime time.Time, ttl time.Duration) (*storage.Heartbeat, error) {
 	queues := []string{}
-
-	msgs := map[string]string{}
 
 	concurrency := 0
 	busy := 0
+	pid := os.Getpid()
+
+	var workerHeartbeats []storage.WorkerHeartbeat
 
 	for _, w := range m.workers {
 		queues = append(queues, w.queue)
@@ -62,43 +66,15 @@ func (m *Manager) buildHeartbeat() (*storage.Heartbeat, error) {
 		busy += len(w.inProgressMessages())
 
 		w.runnersLock.Lock()
-
 		for _, r := range w.runners {
-			msg := r.inProgressMessage()
-			if msg == nil {
-				continue
+			workerHeartbeat := storage.WorkerHeartbeat{
+				Pid:             pid,
+				Tid:             r.tid,
+				Queue:           w.queue,
+				InProgressQueue: w.inProgressQueue,
 			}
-
-			workerMsg := &HeartbeatWorkerMsg{
-				Retry:      1,
-				Queue:      w.queue,
-				Backtrace:  false,
-				Class:      msg.Class(),
-				Args:       msg.Args(),
-				Jid:        msg.Jid(),
-				CreatedAt:  msg.startedAt, // not actually started at
-				EnqueuedAt: time.Now().UTC().Unix(),
-			}
-
-			jsonMsg, err := json.Marshal(workerMsg)
-			if err != nil {
-				return nil, err
-			}
-
-			wrapper := &HeartbeatWorkerMsgWrapper{
-				Queue:   w.queue,
-				Payload: string(jsonMsg),
-				RunAt:   msg.startedAt,
-			}
-
-			jsonWrapper, err := json.Marshal(wrapper)
-			if err != nil {
-				return nil, err
-			}
-
-			msgs[r.tid] = string(jsonWrapper)
+			workerHeartbeats = append(workerHeartbeats, workerHeartbeat)
 		}
-
 		w.runnersLock.Unlock()
 	}
 
@@ -106,7 +82,6 @@ func (m *Manager) buildHeartbeat() (*storage.Heartbeat, error) {
 	if err != nil {
 		return nil, err
 	}
-	pid := os.Getpid()
 
 	if m.opts.ManagerDisplayName != "" {
 		hostname = hostname + ":" + m.opts.ManagerDisplayName
@@ -118,7 +93,10 @@ func (m *Manager) buildHeartbeat() (*storage.Heartbeat, error) {
 		tag = strings.ReplaceAll(m.opts.Namespace, ":", "")
 	}
 
-	identity := fmt.Sprintf("%s:%d:%s", hostname, pid, m.processNonce)
+	heartbeatID, err := m.getHeartbeatID()
+	if err != nil {
+		return nil, err
+	}
 
 	heartbeatInfo := &HeartbeatInfo{
 		Hostname:    hostname,
@@ -128,7 +106,7 @@ func (m *Manager) buildHeartbeat() (*storage.Heartbeat, error) {
 		Concurrency: concurrency,
 		Queues:      queues,
 		Labels:      []string{},
-		Identity:    identity,
+		Identity:    heartbeatID,
 	}
 	heartbeatInfoJson, err := json.Marshal(heartbeatInfo)
 
@@ -137,15 +115,29 @@ func (m *Manager) buildHeartbeat() (*storage.Heartbeat, error) {
 	}
 
 	heartbeat := &storage.Heartbeat{
-		Identity:       identity,
-		Beat:           time.Now(),
-		Quiet:          false,
-		Busy:           busy,
-		RSS:            0, // rss is not currently supported
-		Info:           string(heartbeatInfoJson),
-		Pid:            pid,
-		WorkerMessages: msgs,
+		Identity:         heartbeatID,
+		Beat:             heartbeatTime.UTC().Unix(),
+		Quiet:            false,
+		Busy:             busy,
+		RSS:              0, // rss is not currently supported
+		Info:             string(heartbeatInfoJson),
+		Pid:              pid,
+		ActiveManager:    m.IsActive(),
+		WorkerHeartbeats: workerHeartbeats,
+		Ttl:              ttl,
+	}
+	if m.opts.Heartbeat != nil && m.opts.Heartbeat.PrioritizedManager != nil {
+		heartbeat.ManagerPriority = m.opts.Heartbeat.PrioritizedManager.ManagerPriority
 	}
 
 	return heartbeat, nil
+}
+
+func (m *Manager) getHeartbeatID() (string, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "", err
+	}
+	pid := os.Getpid()
+	return fmt.Sprintf("%s:%d:%s", hostname, pid, m.processNonce), nil
 }
