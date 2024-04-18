@@ -15,19 +15,20 @@ import (
 
 // Manager coordinates work, workers, and signaling needed for job processing
 type Manager struct {
-	uuid             string
-	opts             Options
-	schedule         *scheduledWorker
-	workers          []*worker
-	lock             sync.Mutex
-	signal           chan os.Signal
-	running          bool
-	stop             chan bool
-	active           bool
-	logger           *log.Logger
-	startedAt        time.Time
-	processNonce     string
-	heartbeatChannel chan bool
+	uuid                  string
+	opts                  Options
+	schedule              *scheduledWorker
+	workers               []*worker
+	lock                  sync.Mutex
+	signal                chan os.Signal
+	running               bool
+	stop                  chan bool
+	active                bool
+	logger                *log.Logger
+	startedAt             time.Time
+	processNonce          string
+	heartbeatChannel      chan bool
+	heartbeatLastPushedAt time.Time
 
 	beforeStartHooks       []func()
 	duringDrainHooks       []func()
@@ -245,9 +246,10 @@ func (m *Manager) Producer() *Producer {
 // GetStats returns the set of stats for the manager
 func (m *Manager) GetStats() (Stats, error) {
 	stats := Stats{
-		Jobs:     map[string][]JobStatus{},
-		Enqueued: map[string]int64{},
-		Name:     m.opts.ManagerDisplayName,
+		Jobs:                  map[string][]JobStatus{},
+		Enqueued:              map[string]int64{},
+		Name:                  m.opts.ManagerDisplayName,
+		HeartbeatLastPushedAt: m.heartbeatLastPushedAt,
 	}
 	var q []string
 
@@ -339,6 +341,7 @@ func (m *Manager) startHeartbeat() error {
 					return err
 				}
 			}
+			m.heartbeatLastPushedAt = time.Now()
 		case <-m.heartbeatChannel:
 			return nil
 		}
