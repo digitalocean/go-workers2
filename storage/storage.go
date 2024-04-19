@@ -39,15 +39,16 @@ type Retries struct {
 type Heartbeat struct {
 	Identity string `json:"identity"`
 
-	Beat            int64  `json:"beat,string"`
-	Quiet           bool   `json:"quiet,string"`
-	Busy            int    `json:"busy,string"`
-	RttUS           int    `json:"rtt_us,string"`
-	RSS             int64  `json:"rss,string"`
-	Info            string `json:"info"`
-	Pid             int    `json:"pid,string"`
-	ManagerPriority int    `json:"manager_priority,string"`
-	ActiveManager   bool   `json:"active_manager,string"`
+	Beat            int64             `json:"beat,string"`
+	Quiet           bool              `json:"quiet,string"`
+	Busy            int               `json:"busy,string"`
+	RttUS           int               `json:"rtt_us,string"`
+	RSS             int64             `json:"rss,string"`
+	Info            string            `json:"info"`
+	Pid             int               `json:"pid,string"`
+	ManagerPriority int               `json:"manager_priority,string"`
+	ActiveManager   bool              `json:"active_manager,string"`
+	WorkerMessages  map[string]string `json:"worker_messages"`
 
 	Ttl time.Duration
 

@@ -53,6 +53,7 @@ func GenerateProcessNonce() (string, error) {
 
 func (m *Manager) buildHeartbeat(heartbeatTime time.Time, ttl time.Duration) (*storage.Heartbeat, error) {
 	queues := []string{}
+	msgs := map[string]string{}
 
 	concurrency := 0
 	busy := 0
@@ -67,6 +68,41 @@ func (m *Manager) buildHeartbeat(heartbeatTime time.Time, ttl time.Duration) (*s
 
 		w.runnersLock.Lock()
 		for _, r := range w.runners {
+
+			msg := r.inProgressMessage()
+			if msg == nil {
+				continue
+			}
+
+			workerMsg := &HeartbeatWorkerMsg{
+				Retry:      1,
+				Queue:      w.queue,
+				Backtrace:  false,
+				Class:      msg.Class(),
+				Args:       msg.Args(),
+				Jid:        msg.Jid(),
+				CreatedAt:  msg.startedAt, // not actually started at
+				EnqueuedAt: time.Now().UTC().Unix(),
+			}
+
+			jsonMsg, err := json.Marshal(workerMsg)
+			if err != nil {
+				return nil, err
+			}
+
+			wrapper := &HeartbeatWorkerMsgWrapper{
+				Queue:   w.queue,
+				Payload: string(jsonMsg),
+				RunAt:   msg.startedAt,
+			}
+
+			jsonWrapper, err := json.Marshal(wrapper)
+			if err != nil {
+				return nil, err
+			}
+
+			msgs[r.tid] = string(jsonWrapper)
+
 			workerHeartbeat := storage.WorkerHeartbeat{
 				Pid:             pid,
 				Tid:             r.tid,
@@ -125,6 +161,7 @@ func (m *Manager) buildHeartbeat(heartbeatTime time.Time, ttl time.Duration) (*s
 		ActiveManager:    m.IsActive(),
 		WorkerHeartbeats: workerHeartbeats,
 		Ttl:              ttl,
+		WorkerMessages:   msgs,
 	}
 	if m.opts.Heartbeat != nil && m.opts.Heartbeat.PrioritizedManager != nil {
 		heartbeat.ManagerPriority = m.opts.Heartbeat.PrioritizedManager.ManagerPriority
