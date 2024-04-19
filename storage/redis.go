@@ -170,7 +170,7 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 	// make sure the worker is cleaned up
 	pipe.Expire(ctx, GetWorkersKey(managerKey), heartbeat.Ttl)
 
-	_, err = pipe.Exec(ctx)
+	_, err := pipe.Exec(ctx)
 	if err != nil && err != redis.Nil {
 		return err
 	}
