@@ -323,24 +323,24 @@ func (m *Manager) startHeartbeat() error {
 				m.logger.Println("ERR: Failed to get heartbeat time", err)
 				return err
 			}
-			heartbeat, err := m.sendHeartbeat(heartbeatTime)
+			_, err = m.sendHeartbeat(heartbeatTime)
 			if err != nil {
-				m.logger.Println("ERR: Failed to send heartbeat", err)
 				return err
 			}
-			expireTS := heartbeatTime.Add(-m.opts.Heartbeat.HeartbeatTTL).Unix()
-			staleMessageUpdates, err := m.handleAllExpiredHeartbeats(context.Background(), expireTS)
-			if err != nil {
-				m.logger.Println("ERR: error expiring heartbeat identities", err)
-				return err
-			}
-			for _, afterHeartbeatHook := range m.afterHeartbeatHooks {
-				err := afterHeartbeatHook(heartbeat, m, staleMessageUpdates)
-				if err != nil {
-					m.logger.Println("ERR: Failed to execute after heartbeat hook", err)
-					return err
-				}
-			}
+
+			//expireTS := heartbeatTime.Add(-m.opts.Heartbeat.HeartbeatTTL).Unix()
+			//staleMessageUpdates, err := m.handleAllExpiredHeartbeats(context.Background(), expireTS)
+			//if err != nil {
+			//	m.logger.Println("ERR: error expiring heartbeat identities", err)
+			//	return err
+			//}
+			//for _, afterHeartbeatHook := range m.afterHeartbeatHooks {
+			//	err := afterHeartbeatHook(heartbeat, m, staleMessageUpdates)
+			//	if err != nil {
+			//		m.logger.Println("ERR: Failed to execute after heartbeat hook", err)
+			//		return err
+			//	}
+			//}
 			m.heartbeatLastPushedAt = time.Now()
 		case <-m.heartbeatChannel:
 			return nil
@@ -426,7 +426,9 @@ func (m *Manager) sendHeartbeat(heartbeatTime time.Time) (*storage.Heartbeat, er
 	}
 
 	err = m.opts.store.SendHeartbeat(context.Background(), heartbeat)
-	m.logger.Println("ERR: Failed to send heartbeat", err)
+	if err != nil {
+		m.logger.Println("ERR: Failed to send heartbeat", err)
+	}
 	return heartbeat, err
 }
 
