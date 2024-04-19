@@ -421,10 +421,12 @@ func (m *Manager) stopHeartbeat() {
 func (m *Manager) sendHeartbeat(heartbeatTime time.Time) (*storage.Heartbeat, error) {
 	heartbeat, err := m.buildHeartbeat(heartbeatTime, m.opts.Heartbeat.HeartbeatTTL)
 	if err != nil {
+		m.logger.Println("ERR: Failed to build heartbeat", err)
 		return heartbeat, err
 	}
 
 	err = m.opts.store.SendHeartbeat(context.Background(), heartbeat)
+	m.logger.Println("ERR: Failed to send heartbeat", err)
 	return heartbeat, err
 }
 
