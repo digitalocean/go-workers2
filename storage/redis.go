@@ -160,6 +160,22 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 		"active_manager", heartbeat.ActiveManager,
 		"worker_heartbeats", workerHeartbeats)
 
+	// ensure the heartbeat is automatically cleaned up
+	pipe.Expire(ctx, managerKey, heartbeat.Ttl)
+
+	// delete the worker key just in case our set is empty
+	pipe.Del(ctx, GetWorkersKey(managerKey))
+
+	// send all job message heartbeats
+	for tid, msg := range heartbeat.WorkerMessages {
+		// fake the sidekiq thread id
+		fakeThreadId := fmt.Sprintf("%d-%s", heartbeat.Pid, tid)
+		pipe.HSet(ctx, GetWorkersKey(managerKey), fakeThreadId, msg)
+	}
+
+	// make sure the worker is cleaned up
+	pipe.Expire(ctx, GetWorkersKey(managerKey), heartbeat.Ttl)
+
 	_, err = pipe.Exec(ctx)
 	if err != nil && err != redis.Nil {
 		return err
