@@ -62,9 +62,8 @@ func TestTaskRunner(t *testing.T) {
 	})
 
 	var wg sync.WaitGroup
-
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		tr.work(msgCh, doneCh, readyCh)
 		wg.Done()
 	}()

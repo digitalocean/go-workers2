@@ -200,8 +200,8 @@ func TestManager_Run(t *testing.T) {
 	mgr.AddWorker("queue2", 2, q2cc.F, NopMiddleware)
 
 	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		mgr.Run()
 		wg.Done()
 	}()
@@ -230,8 +230,8 @@ func TestManager_Run(t *testing.T) {
 	assert.NotContains(t, globalAPIServer.managers, mgr.uuid)
 
 	// Test that we can restart the manager
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		mgr.Run()
 		wg.Done()
 	}()
@@ -267,8 +267,8 @@ func TestManager_inProgressMessages(t *testing.T) {
 	mgr.AddWorker("ipm_test_queue2", 2, q2cc.F, NopMiddleware)
 
 	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		mgr.Run()
 		wg.Done()
 	}()
@@ -350,8 +350,8 @@ func TestManager_InactiveManagerNoMessageProcessing(t *testing.T) {
 	mgr.AddWorker("queue1", 1, q1cc.F, NopMiddleware)
 
 	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		mgr.Run()
 		wg.Done()
 	}()
@@ -398,8 +398,8 @@ func TestManager_Run_HeartbeatHandlesStaleInProgressMessages(t *testing.T) {
 	})
 
 	var wg1 sync.WaitGroup
+	wg1.Add(1)
 	go func() {
-		wg1.Add(1)
 		mgr1.Run()
 		wg1.Done()
 	}()
@@ -465,8 +465,8 @@ func TestManager_Run_HeartbeatHandlesStaleInProgressMessages(t *testing.T) {
 		return nil
 	})
 	var wg2 sync.WaitGroup
+	wg2.Add(1)
 	go func() {
-		wg2.Add(1)
 		mgr2.Run()
 		wg2.Done()
 	}()
@@ -528,8 +528,8 @@ func TestManager_Run_PrioritizedActiveManager(t *testing.T) {
 			return nil
 		})
 
+		managerConfig.waitGroup.Add(1)
 		go func() {
-			managerConfig.waitGroup.Add(1)
 			managerConfig.manager.Run()
 			managerConfig.waitGroup.Done()
 		}()
