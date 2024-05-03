@@ -159,5 +159,10 @@ func validateGeneralOptions(options Options) (Options, error) {
 		options.PollInterval = 15 * time.Second
 	}
 
+	if options.Heartbeat != nil &&
+		options.Heartbeat.Interval >= options.Heartbeat.HeartbeatTTL {
+		return Options{}, errors.New("invalid heartbeat configuration, heartbeat interval longer than or equal to heartbeat tll")
+	}
+
 	return options, nil
 }
