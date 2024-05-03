@@ -2,11 +2,12 @@ package workers
 
 import (
 	"encoding/json"
-	"github.com/stretchr/testify/assert"
 	"log"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestBuildHeartbeat(t *testing.T) {
@@ -52,6 +53,7 @@ func TestBuildHeartbeatWorkerMessage(t *testing.T) {
 		return nil
 	})
 	msg, err := NewMsg("{\"class\":\"MyWorker\",\"jid\":\"jid-123\"}")
+	assert.NoError(t, err)
 
 	testLogger := log.New(os.Stdout, "test-go-workers2: ", log.Ldate|log.Lmicroseconds)
 

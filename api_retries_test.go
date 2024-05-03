@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/stretchr/testify/assert"
 	"log"
 	"net/http/httptest"
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRetries_Empty(t *testing.T) {
@@ -32,8 +33,6 @@ func TestRetries_NotEmpty(t *testing.T) {
 	a.Retries(recorder, request)
 
 	assert.Equal(t, "[]\n", recorder.Body.String())
-
-	ctx := context.Background()
 
 	// test API replies with registered workers
 	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
@@ -71,14 +70,13 @@ func TestRetries_NotEmpty(t *testing.T) {
 		},
 	}
 
-	ctx = context.Background()
 	var messages []string
 	for index, test := range tests {
 		// Test panic
 		wares.build("myqueue", mgr, test.f)(message)
 
 		// retries order is not guaranteed
-		retries, err := opts.client.ZRange(ctx, retryQueue(opts.Namespace), 0, -1).Result()
+		retries, err := opts.client.ZRange(context.Background(), retryQueue(opts.Namespace), 0, -1).Result()
 		assert.NoError(t, err)
 		assert.Len(t, retries, index+1)
 		messages = append(messages, message.ToJson())

@@ -118,6 +118,7 @@ func TestProducer_EnqueueIn(t *testing.T) {
 
 	var data EnqueueData
 	elem, err := rc.ZRange(ctx, scheduleQueue, 0, -1).Result()
+	assert.NoError(t, err)
 	bytes := elem[0]
 	err = json.Unmarshal([]byte(bytes), &data)
 	assert.NoError(t, err)
