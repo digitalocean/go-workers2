@@ -97,8 +97,8 @@ func TestWorker(t *testing.T) {
 	w := newWorker(testLogger, "q", 2, cc.F)
 
 	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		w.start(&df)
 		wg.Done()
 	}()
@@ -189,9 +189,8 @@ func TestWorkerProcessesAndAcksMessages(t *testing.T) {
 	w := newWorker(testLogger, "q", 1, cc.F)
 
 	var wg sync.WaitGroup
-
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		w.start(&df)
 		wg.Done()
 	}()
