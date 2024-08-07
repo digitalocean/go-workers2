@@ -2,6 +2,7 @@ package workers
 
 import (
 	"context"
+	"github.com/digitalocean/go-workers2/unique"
 	"strings"
 	"time"
 )
@@ -44,7 +45,7 @@ func (s *scheduledWorker) poll() {
 		queue = strings.TrimPrefix(queue, s.opts.Namespace)
 		message.Set("enqueued_at", nowToSecondsWithNanoPrecision())
 
-		s.opts.store.EnqueueMessageNow(context.Background(), queue, message.ToJson())
+		s.opts.store.EnqueueMessageNow(context.Background(), queue, message.ToJson(), unique.NewOptions())
 	}
 
 	for {
@@ -59,7 +60,7 @@ func (s *scheduledWorker) poll() {
 		queue = strings.TrimPrefix(queue, s.opts.Namespace)
 		message.Set("enqueued_at", nowToSecondsWithNanoPrecision())
 
-		s.opts.store.EnqueueMessageNow(context.Background(), queue, message.ToJson())
+		s.opts.store.EnqueueMessageNow(context.Background(), queue, message.ToJson(), unique.NewOptions())
 	}
 }
 

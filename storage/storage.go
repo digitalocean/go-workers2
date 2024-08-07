@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"github.com/digitalocean/go-workers2/unique"
 	"time"
 )
 
@@ -69,8 +70,8 @@ type Store interface {
 	CreateQueue(ctx context.Context, queue string) error
 	ListMessages(ctx context.Context, queue string) ([]string, error)
 	AcknowledgeMessage(ctx context.Context, queue string, message string) error
-	EnqueueMessage(ctx context.Context, queue string, priority float64, message string) error
-	EnqueueMessageNow(ctx context.Context, queue string, message string) error
+	EnqueueMessage(ctx context.Context, queue string, priority float64, message string, uniqueOptions unique.Options) error
+	EnqueueMessageNow(ctx context.Context, queue string, message string, uniqueOptions unique.Options) error
 	DequeueMessage(ctx context.Context, queue string, inprogressQueue string, timeout time.Duration) (string, error)
 	RequeueMessagesFromInProgressQueue(ctx context.Context, inprogressQueue, queue string) ([]string, error)
 
