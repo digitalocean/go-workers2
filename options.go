@@ -3,6 +3,7 @@ package workers
 import (
 	"crypto/tls"
 	"errors"
+	"github.com/digitalocean/go-workers2/unique"
 	"log"
 	"os"
 	"strings"
@@ -39,6 +40,9 @@ type Options struct {
 
 	// Define Heartbeat to enable heartbeat
 	Heartbeat *HeartbeatOptions
+
+	// Unique
+	Unique *unique.Options
 
 	// Log
 	Logger *log.Logger

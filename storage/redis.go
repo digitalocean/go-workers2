@@ -226,16 +226,23 @@ func (r *redisStore) RemoveHeartbeat(ctx context.Context, heartbeatID string) er
 	return nil
 }
 
-func UniqueHash(queue string, message string) string {
-	hasher := sha1.New()
-	hasher.Write([]byte(fmt.Sprintf("%s::%s", queue, message)))
-	sha := base64.URLEncoding.EncodeToString(hasher.Sum(nil))
+func uniqueHash(queue string, message string) string {
+	sha1Hasher := sha1.New()
+	sha1Hasher.Write([]byte(fmt.Sprintf("%s::%s", queue, message)))
+	sha := base64.URLEncoding.EncodeToString(sha1Hasher.Sum(nil))
 
 	return fmt.Sprintf("unique::%s", sha)
 }
 
+func (r *redisStore) checkForExistingUniqueMessage(ctx context.Context, queue string, message string) (bool, error) {
+	uniqueKey := uniqueHash(queue, message)
+
+	found, err := r.client.Exists(ctx, uniqueKey).Result()
+	return found == 1, err
+}
+
 func (r *redisStore) setUniqueKey(ctx context.Context, pipe redis.Pipeliner, queue, message string, uniqueFor time.Duration) error {
-	uniqueKey := UniqueHash(queue, message)
+	uniqueKey := uniqueHash(queue, message)
 
 	_, uniqueErr := pipe.SetNX(ctx, uniqueKey, "1", uniqueFor).Result()
 	if uniqueErr != nil {
@@ -351,13 +358,6 @@ func (r *redisStore) DequeueRetriedMessage(ctx context.Context, priority float64
 	}
 
 	return messages[0], nil
-}
-
-func (r *redisStore) checkForExistingUniqueMessage(ctx context.Context, queue string, message string) (bool, error) {
-	uniqueKey := UniqueHash(queue, message)
-
-	found, err := r.client.Exists(ctx, uniqueKey).Result()
-	return found == 1, err
 }
 
 func (r *redisStore) EnqueueMessageNow(ctx context.Context, queue string, message string, options unique.Options) error {
