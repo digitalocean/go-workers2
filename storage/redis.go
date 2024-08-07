@@ -2,8 +2,11 @@ package storage
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/digitalocean/go-workers2/unique"
 	"log"
 	"strconv"
 	"time"
@@ -160,6 +163,22 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 		"active_manager", heartbeat.ActiveManager,
 		"worker_heartbeats", workerHeartbeats)
 
+	// ensure the heartbeat is automatically cleaned up
+	pipe.Expire(ctx, managerKey, heartbeat.Ttl)
+
+	// delete the worker key just in case our set is empty
+	pipe.Del(ctx, GetWorkersKey(managerKey))
+
+	// send all job message heartbeats
+	for tid, msg := range heartbeat.WorkerMessages {
+		// fake the sidekiq thread id
+		fakeThreadId := fmt.Sprintf("%d-%s", heartbeat.Pid, tid)
+		pipe.HSet(ctx, GetWorkersKey(managerKey), fakeThreadId, msg)
+	}
+
+	// make sure the worker is cleaned up
+	pipe.Expire(ctx, GetWorkersKey(managerKey), heartbeat.Ttl)
+
 	_, err = pipe.Exec(ctx)
 	if err != nil && err != redis.Nil {
 		return err
@@ -207,11 +226,58 @@ func (r *redisStore) RemoveHeartbeat(ctx context.Context, heartbeatID string) er
 	return nil
 }
 
-func (r *redisStore) EnqueueMessage(ctx context.Context, queue string, priority float64, message string) error {
-	_, err := r.client.ZAdd(ctx, r.getQueueName(queue), &redis.Z{
-		Score:  priority,
-		Member: message,
-	}).Result()
+func uniqueHash(queue string, message string) string {
+	sha1Hasher := sha1.New()
+	sha1Hasher.Write([]byte(fmt.Sprintf("%s::%s", queue, message)))
+	sha := base64.URLEncoding.EncodeToString(sha1Hasher.Sum(nil))
+
+	return fmt.Sprintf("unique::%s", sha)
+}
+
+func (r *redisStore) checkForExistingUniqueMessage(ctx context.Context, queue string, message string) (bool, error) {
+	uniqueKey := uniqueHash(queue, message)
+
+	found, err := r.client.Exists(ctx, uniqueKey).Result()
+	return found == 1, err
+}
+
+func (r *redisStore) setUniqueKey(ctx context.Context, pipe redis.Pipeliner, queue, message string, uniqueFor time.Duration) error {
+	uniqueKey := uniqueHash(queue, message)
+
+	_, uniqueErr := pipe.SetNX(ctx, uniqueKey, "1", uniqueFor).Result()
+	if uniqueErr != nil {
+		return uniqueErr
+	}
+	return nil
+}
+
+func (r *redisStore) EnqueueMessage(ctx context.Context, queue string, priority float64, message string, options unique.Options) error {
+
+	uniqueFor := options.UniqueFor
+
+	if uniqueFor > 0 {
+		exists, err := r.checkForExistingUniqueMessage(ctx, queue, message)
+		if exists && err == nil {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	_, err := r.client.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+		_, err := pipe.ZAdd(ctx, r.getQueueName(queue), &redis.Z{
+			Score:  priority,
+			Member: message,
+		}).Result()
+		if err != nil {
+			return err
+		}
+		if uniqueFor > 0 {
+			return r.setUniqueKey(ctx, pipe, queue, message, uniqueFor)
+		}
+		return nil
+	})
 
 	return err
 }
@@ -294,9 +360,31 @@ func (r *redisStore) DequeueRetriedMessage(ctx context.Context, priority float64
 	return messages[0], nil
 }
 
-func (r *redisStore) EnqueueMessageNow(ctx context.Context, queue string, message string) error {
+func (r *redisStore) EnqueueMessageNow(ctx context.Context, queue string, message string, options unique.Options) error {
 	queue = r.namespace + "queue:" + queue
-	_, err := r.client.LPush(ctx, queue, message).Result()
+
+	uniqueFor := options.UniqueFor
+
+	if uniqueFor > 0 {
+		exists, err := r.checkForExistingUniqueMessage(ctx, queue, message)
+		if exists && err == nil {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	// we want this to be transactionally pipelined so either the key was enqueued with the unique value or it was not.
+	_, err := r.client.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+		pipe.LPush(ctx, queue, message)
+
+		if uniqueFor > 0 {
+			return r.setUniqueKey(ctx, pipe, queue, message, uniqueFor)
+		}
+		return nil
+	})
+
 	return err
 }
 

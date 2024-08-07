@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"github.com/digitalocean/go-workers2/unique"
 	"time"
 )
 
@@ -39,15 +40,16 @@ type Retries struct {
 type Heartbeat struct {
 	Identity string `json:"identity"`
 
-	Beat            int64  `json:"beat,string"`
-	Quiet           bool   `json:"quiet,string"`
-	Busy            int    `json:"busy,string"`
-	RttUS           int    `json:"rtt_us,string"`
-	RSS             int64  `json:"rss,string"`
-	Info            string `json:"info"`
-	Pid             int    `json:"pid,string"`
-	ManagerPriority int    `json:"manager_priority,string"`
-	ActiveManager   bool   `json:"active_manager,string"`
+	Beat            int64             `json:"beat,string"`
+	Quiet           bool              `json:"quiet,string"`
+	Busy            int               `json:"busy,string"`
+	RttUS           int               `json:"rtt_us,string"`
+	RSS             int64             `json:"rss,string"`
+	Info            string            `json:"info"`
+	Pid             int               `json:"pid,string"`
+	ManagerPriority int               `json:"manager_priority,string"`
+	ActiveManager   bool              `json:"active_manager,string"`
+	WorkerMessages  map[string]string `json:"worker_messages"`
 
 	Ttl time.Duration
 
@@ -68,8 +70,8 @@ type Store interface {
 	CreateQueue(ctx context.Context, queue string) error
 	ListMessages(ctx context.Context, queue string) ([]string, error)
 	AcknowledgeMessage(ctx context.Context, queue string, message string) error
-	EnqueueMessage(ctx context.Context, queue string, priority float64, message string) error
-	EnqueueMessageNow(ctx context.Context, queue string, message string) error
+	EnqueueMessage(ctx context.Context, queue string, priority float64, message string, uniqueOptions unique.Options) error
+	EnqueueMessageNow(ctx context.Context, queue string, message string, uniqueOptions unique.Options) error
 	DequeueMessage(ctx context.Context, queue string, inprogressQueue string, timeout time.Duration) (string, error)
 	RequeueMessagesFromInProgressQueue(ctx context.Context, inprogressQueue, queue string) ([]string, error)
 

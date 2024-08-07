@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"github.com/digitalocean/go-workers2/unique"
 	"io"
 	"time"
 
@@ -33,10 +34,11 @@ type EnqueueData struct {
 
 // EnqueueOptions stores configuration for new work
 type EnqueueOptions struct {
-	RetryCount int     `json:"retry_count,omitempty"`
-	RetryMax   int     `json:"retry_max,omitempty"`
-	Retry      bool    `json:"retry,omitempty"`
-	At         float64 `json:"at,omitempty"`
+	RetryCount    int            `json:"retry_count,omitempty"`
+	RetryMax      int            `json:"retry_max,omitempty"`
+	Retry         bool           `json:"retry,omitempty"`
+	At            float64        `json:"at,omitempty"`
+	UniqueOptions unique.Options `json:"unique_options,omitempty"`
 }
 
 // NewProducer creates a new producer with the given options
@@ -92,6 +94,7 @@ func (p *Producer) EnqueueWithOptions(queue, class string, args interface{}, opt
 // EnqueueWithContext enqueues new work for processing with the given options and context
 func (p *Producer) EnqueueWithContext(ctx context.Context, queue, class string, args interface{}, opts EnqueueOptions) (string, error) {
 	now := nowToSecondsWithNanoPrecision()
+
 	data := EnqueueData{
 		Queue:          queue,
 		Class:          class,
@@ -116,7 +119,7 @@ func (p *Producer) EnqueueWithContext(ctx context.Context, queue, class string, 
 		return "", err
 	}
 
-	err = p.opts.store.EnqueueMessageNow(ctx, queue, string(bytes))
+	err = p.opts.store.EnqueueMessageNow(ctx, queue, string(bytes), opts.UniqueOptions)
 	if err != nil {
 		return "", err
 	}
