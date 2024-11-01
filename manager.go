@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/digitalocean/go-workers2/storage"
-	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 // Manager coordinates work, workers, and signaling needed for job processing

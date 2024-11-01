@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 )
 
 type redisStore struct {
@@ -208,7 +208,7 @@ func (r *redisStore) RemoveHeartbeat(ctx context.Context, heartbeatID string) er
 }
 
 func (r *redisStore) EnqueueMessage(ctx context.Context, queue string, priority float64, message string) error {
-	_, err := r.client.ZAdd(ctx, r.getQueueName(queue), &redis.Z{
+	_, err := r.client.ZAdd(ctx, r.getQueueName(queue), redis.Z{
 		Score:  priority,
 		Member: message,
 	}).Result()
@@ -217,7 +217,7 @@ func (r *redisStore) EnqueueMessage(ctx context.Context, queue string, priority 
 }
 
 func (r *redisStore) EnqueueScheduledMessage(ctx context.Context, priority float64, message string) error {
-	_, err := r.client.ZAdd(ctx, r.namespace+ScheduledJobsKey, &redis.Z{
+	_, err := r.client.ZAdd(ctx, r.namespace+ScheduledJobsKey, redis.Z{
 		Score:  priority,
 		Member: message,
 	}).Result()
@@ -256,7 +256,7 @@ func (r *redisStore) DequeueScheduledMessage(ctx context.Context, priority float
 }
 
 func (r *redisStore) EnqueueRetriedMessage(ctx context.Context, priority float64, message string) error {
-	_, err := r.client.ZAdd(ctx, r.namespace+RetryKey, &redis.Z{
+	_, err := r.client.ZAdd(ctx, r.namespace+RetryKey, redis.Z{
 		Score:  priority,
 		Member: message,
 	}).Result()
