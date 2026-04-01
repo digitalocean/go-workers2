@@ -61,6 +61,7 @@ func NewManager(options Options) (*Manager, error) {
 }
 
 // GetRedisClient returns the Redis client used by the manager
+// Deprecated: the Redis client is an internal implementation and access will be removed
 func (m *Manager) GetRedisClient() *redis.Client {
 	return m.opts.client
 }

@@ -168,10 +168,6 @@ func (r *redisStore) SendHeartbeat(ctx context.Context, heartbeat *Heartbeat) er
 	return nil
 }
 
-func (r *redisStore) getTaskRunnerID(pid int, tid string) string {
-	return fmt.Sprintf("%d-%s", pid, tid)
-}
-
 func (r *redisStore) RequeueMessagesFromInProgressQueue(ctx context.Context, inprogressQueue, queue string) ([]string, error) {
 	var requeuedMsgs []string
 	for {

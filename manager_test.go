@@ -490,7 +490,6 @@ type testPrioritizedActiveManagerConfig struct {
 	waitGroup         sync.WaitGroup
 	assertHeartbeat   chan bool
 	assertedHeartbeat bool
-	assertedActivate  bool
 }
 
 func TestManager_Run_PrioritizedActiveManager(t *testing.T) {
