@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/digitalocean/go-workers2/storage"
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -80,12 +80,12 @@ func processOptions(options Options) (Options, error) {
 
 	if options.ServerAddr != "" {
 		options.client = redis.NewClient(&redis.Options{
-			IdleTimeout: redisIdleTimeout,
-			Password:    options.Password,
-			DB:          options.Database,
-			PoolSize:    options.PoolSize,
-			Addr:        options.ServerAddr,
-			TLSConfig:   options.RedisTLSConfig,
+			ConnMaxIdleTime: redisIdleTimeout,
+			Password:        options.Password,
+			DB:              options.Database,
+			PoolSize:        options.PoolSize,
+			Addr:            options.ServerAddr,
+			TLSConfig:       options.RedisTLSConfig,
 		})
 	} else if options.SentinelAddrs != "" {
 		if options.RedisMasterName == "" {
@@ -93,13 +93,13 @@ func processOptions(options Options) (Options, error) {
 		}
 
 		options.client = redis.NewFailoverClient(&redis.FailoverOptions{
-			IdleTimeout:   redisIdleTimeout,
-			Password:      options.Password,
-			DB:            options.Database,
-			PoolSize:      options.PoolSize,
-			SentinelAddrs: strings.Split(options.SentinelAddrs, ","),
-			MasterName:    options.RedisMasterName,
-			TLSConfig:     options.RedisTLSConfig,
+			ConnMaxIdleTime: redisIdleTimeout,
+			Password:        options.Password,
+			DB:              options.Database,
+			PoolSize:        options.PoolSize,
+			SentinelAddrs:   strings.Split(options.SentinelAddrs, ","),
+			MasterName:      options.RedisMasterName,
+			TLSConfig:       options.RedisTLSConfig,
 		})
 	} else {
 		return Options{}, errors.New("Options requires either the Server or Sentinels option")

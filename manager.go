@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/digitalocean/go-workers2/storage"
-	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 // Manager coordinates work, workers, and signaling needed for job processing
@@ -61,6 +61,7 @@ func NewManager(options Options) (*Manager, error) {
 }
 
 // GetRedisClient returns the Redis client used by the manager
+// Deprecated: the Redis client is an internal implementation and access will be removed
 func (m *Manager) GetRedisClient() *redis.Client {
 	return m.opts.client
 }

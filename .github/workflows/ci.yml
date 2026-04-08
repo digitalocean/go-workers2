@@ -13,14 +13,14 @@ jobs:
           - 6379:6379
 
     steps:
-      - name: Set up Go 1.13
-        uses: actions/setup-go@v2
+      - name: Set up Go
+        uses: actions/setup-go@v6
         with:
-          go-version: 1.13
+          go-version: 1.26
         id: go
 
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
 
       - name: Test
         run: make test
