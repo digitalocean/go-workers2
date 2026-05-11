@@ -19,7 +19,7 @@ const (
 	RetryTimeFormat = "2006-01-02 15:04:05 MST"
 )
 
-func retryProcessError(queue string, mgr *Manager, message *Msg, err error) error {
+func retryProcessErrorWithDelay(queue string, mgr *Manager, message *Msg, err error, delay func(count int) int) error {
 	if !retry(message) {
 		return err
 	}
@@ -30,7 +30,7 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 
 		waitDuration := durationToSecondsWithNanoPrecision(
 			time.Duration(
-				secondsToDelay(retryCount),
+				delay(retryCount),
 			) * time.Second,
 		)
 
@@ -50,8 +50,7 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 	return err
 }
 
-// RetryMiddleware middleware that allows retries for jobs failures
-func RetryMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
+func retryMiddlewareJob(queue string, mgr *Manager, next JobFunc, delayFn func(count int) int) JobFunc {
 	return func(message *Msg) (err error) {
 		defer func() {
 			if e := recover(); e != nil {
@@ -61,7 +60,7 @@ func RetryMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 				}
 
 				if err != nil {
-					err = retryProcessError(queue, mgr, message, err)
+					err = retryProcessErrorWithDelay(queue, mgr, message, err, delayFn)
 				}
 			}
 
@@ -69,10 +68,23 @@ func RetryMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 
 		err = next(message)
 		if err != nil {
-			err = retryProcessError(queue, mgr, message, err)
+			err = retryProcessErrorWithDelay(queue, mgr, message, err, delayFn)
 		}
 
 		return
+	}
+}
+
+// RetryMiddleware middleware that allows retries for jobs failures
+func RetryMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
+	return RetryMiddlewareWithDelay(secondsToDelay)(queue, mgr, next)
+}
+
+// RetryMiddlewareWithDelay is like RetryMiddleware but uses a custom function to
+// calculate the retry delay in seconds for a given retry count.
+func RetryMiddlewareWithDelay(delayFn func(count int) int) MiddlewareFunc {
+	return func(queue string, mgr *Manager, next JobFunc) JobFunc {
+		return retryMiddlewareJob(queue, mgr, next, delayFn)
 	}
 }
 
