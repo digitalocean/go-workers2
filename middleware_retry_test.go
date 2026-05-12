@@ -16,7 +16,7 @@ var panickingFunc = func(message *Msg) error {
 }
 
 var wares = NewMiddlewares(RetryMiddleware)
-var waresWithCustomDelay = NewMiddlewares(RetryMiddlewareWithDelay(func(count int) int { return 30 }))
+var waresWithCustomDelay = NewMiddlewares(RetryMiddlewareWithDelay(func(count int) time.Duration { return 30 * time.Second }))
 
 func TestRetryQueue(t *testing.T) {
 	ctx := context.Background()
@@ -280,16 +280,16 @@ func TestRetryMiddlewareWithDelay_EnqueuedScoresAreNowPlusDelay(t *testing.T) {
 	const lowSecs, highSecs = 50, 250
 	var lowCalled, highCalled bool
 
-	delayFn := func(count int) int {
+	delayFn := func(count int) time.Duration {
 		if count == 2 { // retry_count: "1" + 1
 			lowCalled = true
-			return lowSecs
+			return lowSecs * time.Second
 		}
 		if count == 3 { // retry_count: "2" + 1
 			highCalled = true
-			return highSecs
+			return highSecs * time.Second
 		}
-		return lowSecs
+		return lowSecs * time.Second
 	}
 	wares := NewMiddlewares(RetryMiddlewareWithDelay(delayFn))
 
@@ -316,8 +316,8 @@ func TestRetryMiddlewareWithDelay_EnqueuedScoresAreNowPlusDelay(t *testing.T) {
 	assert.Contains(t, scores[0].Member, "delay-gap-1")
 	assert.Contains(t, scores[1].Member, "delay-gap-2")
 
-	lowWait := durationToSecondsWithNanoPrecision(time.Duration(lowSecs) * time.Second)
-	highWait := durationToSecondsWithNanoPrecision(time.Duration(highSecs) * time.Second)
+	lowWait := durationToSecondsWithNanoPrecision(lowSecs * time.Second)
+	highWait := durationToSecondsWithNanoPrecision(highSecs * time.Second)
 
 	mid1 := (before1 + after1) / 2
 	mid2 := (before2 + after2) / 2

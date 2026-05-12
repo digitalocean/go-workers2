@@ -19,7 +19,7 @@ const (
 	RetryTimeFormat = "2006-01-02 15:04:05 MST"
 )
 
-func retryProcessErrorWithDelay(queue string, mgr *Manager, message *Msg, err error, delay func(count int) int) error {
+func retryProcessErrorWithDelay(queue string, mgr *Manager, message *Msg, err error, delay func(count int) time.Duration) error {
 	if !retry(message) {
 		return err
 	}
@@ -28,11 +28,7 @@ func retryProcessErrorWithDelay(queue string, mgr *Manager, message *Msg, err er
 		message.Set("error_message", fmt.Sprintf("%v", err))
 		retryCount := incrementRetry(message)
 
-		waitDuration := durationToSecondsWithNanoPrecision(
-			time.Duration(
-				delay(retryCount),
-			) * time.Second,
-		)
+		waitDuration := durationToSecondsWithNanoPrecision(delay(retryCount))
 
 		err = mgr.opts.store.EnqueueRetriedMessage(context.Background(), nowToSecondsWithNanoPrecision()+waitDuration, message.ToJson())
 
@@ -50,7 +46,7 @@ func retryProcessErrorWithDelay(queue string, mgr *Manager, message *Msg, err er
 	return err
 }
 
-func retryMiddlewareJob(queue string, mgr *Manager, next JobFunc, delayFn func(count int) int) JobFunc {
+func retryMiddlewareJob(queue string, mgr *Manager, next JobFunc, delayFn func(count int) time.Duration) JobFunc {
 	return func(message *Msg) (err error) {
 		defer func() {
 			if e := recover(); e != nil {
@@ -77,12 +73,12 @@ func retryMiddlewareJob(queue string, mgr *Manager, next JobFunc, delayFn func(c
 
 // RetryMiddleware middleware that allows retries for jobs failures
 func RetryMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
-	return RetryMiddlewareWithDelay(secondsToDelay)(queue, mgr, next)
+	return RetryMiddlewareWithDelay(defaultDelay)(queue, mgr, next)
 }
 
 // RetryMiddlewareWithDelay is like RetryMiddleware but uses a custom function to
-// calculate the retry delay in seconds for a given retry count.
-func RetryMiddlewareWithDelay(delayFn func(count int) int) MiddlewareFunc {
+// calculate the retry delay for a given retry count (after incrementRetry).
+func RetryMiddlewareWithDelay(delayFn func(count int) time.Duration) MiddlewareFunc {
 	return func(queue string, mgr *Manager, next JobFunc) JobFunc {
 		return retryMiddlewareJob(queue, mgr, next, delayFn)
 	}
@@ -126,7 +122,8 @@ func incrementRetry(message *Msg) (retryCount int) {
 	return
 }
 
-func secondsToDelay(count int) int {
+func defaultDelay(count int) time.Duration {
 	power := math.Pow(float64(count), 4)
-	return int(power) + 15 + (rand.Intn(30) * (count + 1))
+	secs := int(power) + 15 + (rand.Intn(30) * (count + 1))
+	return time.Duration(secs) * time.Second
 }
