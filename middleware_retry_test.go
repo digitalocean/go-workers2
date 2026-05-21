@@ -16,6 +16,7 @@ var panickingFunc = func(message *Msg) error {
 }
 
 var wares = NewMiddlewares(RetryMiddleware)
+var waresWithCustomDelay = NewMiddlewares(RetryMiddlewareWithDelay(func(count int) time.Duration { return 30 * time.Second }))
 
 func TestRetryQueue(t *testing.T) {
 	ctx := context.Background()
@@ -24,15 +25,30 @@ func TestRetryQueue(t *testing.T) {
 	message, _ := NewMsg("{\"jid\":\"2\",\"retry\":true}")
 
 	tests := []struct {
-		name string
-		f    JobFunc
+		name  string
+		wares Middlewares
+		f     JobFunc
 	}{
 		{
-			name: "retry on panic",
-			f:    panickingFunc,
+			name:  "default delay - retry on panic",
+			wares: wares,
+			f:     panickingFunc,
 		},
 		{
-			name: "retry on error",
+			name:  "default delay - retry on error",
+			wares: wares,
+			f: func(m *Msg) error {
+				return errors.New("ERROR")
+			},
+		},
+		{
+			name:  "custom delay - retry on panic",
+			wares: waresWithCustomDelay,
+			f:     panickingFunc,
+		},
+		{
+			name:  "custom delay - retry on error",
+			wares: waresWithCustomDelay,
 			f: func(m *Msg) error {
 				return errors.New("ERROR")
 			},
@@ -48,7 +64,8 @@ func TestRetryQueue(t *testing.T) {
 			// Test panic
 			wares.build("myqueue", mgr, tt.f)(message)
 
-			retries, _ := opts.client.ZRange(ctx, retryQueue(opts.Namespace), 0, 1).Result()
+			retries, err := opts.client.ZRange(ctx, retryQueue(opts.Namespace), 0, 1).Result()
+			assert.NoError(t, err)
 			assert.Len(t, retries, 1)
 			assert.Equal(t, message.ToJson(), retries[0])
 		})
@@ -255,4 +272,63 @@ func TestRetryOnlyToCustomMax(t *testing.T) {
 
 	count, _ := opts.client.ZCard(ctx, retryQueue(opts.Namespace)).Result()
 	assert.Equal(t, int64(0), count)
+}
+
+func TestRetryMiddlewareWithDelay_EnqueuedScoresAreNowPlusDelay(t *testing.T) {
+	ctx := context.Background()
+
+	const lowSecs, highSecs = 50, 250
+	var lowCalled, highCalled bool
+
+	delayFn := func(count int) time.Duration {
+		if count == 2 { // retry_count: "1" + 1
+			lowCalled = true
+			return lowSecs * time.Second
+		}
+		if count == 3 { // retry_count: "2" + 1
+			highCalled = true
+			return highSecs * time.Second
+		}
+		return lowSecs * time.Second
+	}
+	wares := NewMiddlewares(RetryMiddlewareWithDelay(delayFn))
+
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	mgr := &Manager{opts: opts}
+
+	msg1, _ := NewMsg(`{"jid":"delay-gap-1","retry":true, "retry_count":1}`)
+	before1 := nowToSecondsWithNanoPrecision()
+	wares.build("myqueue", mgr, panickingFunc)(msg1)
+	after1 := nowToSecondsWithNanoPrecision()
+
+	msg2, _ := NewMsg(`{"jid":"delay-gap-2","retry":true, "retry_count":2}`)
+	before2 := nowToSecondsWithNanoPrecision()
+	wares.build("myqueue", mgr, panickingFunc)(msg2)
+	after2 := nowToSecondsWithNanoPrecision()
+
+	scores, err := opts.client.ZRangeWithScores(ctx, retryQueue(opts.Namespace), 0, -1).Result()
+	assert.NoError(t, err)
+	assert.Len(t, scores, 2)
+
+	// ZSET is ordered by score ascending; shorter delay → lower score (earlier run).
+	assert.Contains(t, scores[0].Member, "delay-gap-1")
+	assert.Contains(t, scores[1].Member, "delay-gap-2")
+
+	lowWait := durationToSecondsWithNanoPrecision(lowSecs * time.Second)
+	highWait := durationToSecondsWithNanoPrecision(highSecs * time.Second)
+
+	mid1 := (before1 + after1) / 2
+	mid2 := (before2 + after2) / 2
+
+	// EnqueueRetriedMessage uses score = nowToSecondsWithNanoPrecision() + waitDuration.
+	// The real "now" falls between beforeN and afterN; midN estimates it. Expected score is
+	// mid + wait. InDelta tolerance is half the bracket (max error of mid) plus a little
+	// slack for float/Roundtrip through Redis.
+	assert.InDelta(t, mid1+lowWait, scores[0].Score, (after1-before1)/2+0.1)
+	assert.InDelta(t, mid2+highWait, scores[1].Score, (after2-before2)/2+0.1)
+
+	assert.True(t, lowCalled, "delayFunc is not called with retry_count == 2")
+	assert.True(t, highCalled, "delayFunc is not called with retry_count == 3")
 }
