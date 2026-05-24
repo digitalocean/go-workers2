@@ -3,6 +3,7 @@ package workers
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 )
 
 func (s *apiServer) Stats(w http.ResponseWriter, req *http.Request) {
@@ -24,14 +25,15 @@ func (s *apiServer) Stats(w http.ResponseWriter, req *http.Request) {
 	enc.Encode(allStats)
 }
 
-// Stats containts current stats for a manager
+// Stats contains current stats for a manager
 type Stats struct {
-	Name       string                 `json:"manager_name"`
-	Processed  int64                  `json:"processed"`
-	Failed     int64                  `json:"failed"`
-	Jobs       map[string][]JobStatus `json:"jobs"`
-	Enqueued   map[string]int64       `json:"enqueued"`
-	RetryCount int64                  `json:"retry_count"`
+	Name                  string                 `json:"manager_name"`
+	Processed             int64                  `json:"processed"`
+	Failed                int64                  `json:"failed"`
+	Jobs                  map[string][]JobStatus `json:"jobs"`
+	Enqueued              map[string]int64       `json:"enqueued"`
+	RetryCount            int64                  `json:"retry_count"`
+	HeartbeatLastPushedAt time.Time              `json:"heartbeat_last_pushed_at"`
 }
 
 // JobStatus contains the status and data for active jobs of a manager
