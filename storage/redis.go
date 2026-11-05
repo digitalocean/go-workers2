@@ -300,11 +300,17 @@ func (r *redisStore) DequeueRetriedMessage(ctx context.Context, priority float64
 }
 
 func (r *redisStore) EnqueueDeadMessage(ctx context.Context, priority float64, message string) error {
-	_, err := r.client.ZAdd(ctx, r.namespace+DeadKey, redis.Z{
+	key := r.namespace + DeadKey
+
+	pipe := r.client.TxPipeline()
+	pipe.ZAdd(ctx, key, redis.Z{
 		Score:  priority,
 		Member: message,
-	}).Result()
+	})
+	pipe.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatFloat(priority-DeadMaxAge.Seconds(), 'f', -1, 64))
+	pipe.ZRemRangeByRank(ctx, key, 0, -DeadMaxJobs-1)
 
+	_, err := pipe.Exec(ctx)
 	return err
 }
 

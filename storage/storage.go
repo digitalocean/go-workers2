@@ -12,6 +12,12 @@ const (
 	DeadKey          = "godead"
 )
 
+// Every write to the dead set trims it to at most DeadMaxJobs entries, none older than DeadMaxAge
+const (
+	DeadMaxJobs = 10000
+	DeadMaxAge  = 180 * 24 * time.Hour
+)
+
 // StorageError is used to return errors from the storage layer
 type StorageError string
 
