@@ -162,3 +162,16 @@ func TestRetryInprogressMessages(t *testing.T) {
 
 	fetch.Close()
 }
+
+// Run with -race: Fetch reads the active flag while SetActive writes it.
+func TestFetcherCanBeDeactivatedWhileFetchStarts(t *testing.T) {
+	opts, err := SetupDefaultTestOptions()
+	assert.NoError(t, err)
+
+	fetch := newSimpleFetcher("fetchQueue7", opts, false)
+	go fetch.Fetch()
+	fetch.SetActive(false)
+	fetch.Close()
+
+	assert.True(t, fetch.Closed())
+}

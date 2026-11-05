@@ -68,7 +68,7 @@ func (f *simpleFetcher) processOldMessages() {
 }
 
 func (f *simpleFetcher) Fetch() {
-	for !f.isActive {
+	for !f.IsActive() {
 		select {
 		case <-f.stop:
 			close(f.closed)
