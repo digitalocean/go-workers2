@@ -70,7 +70,6 @@ func RegisterAPIEndpoints(mux *http.ServeMux) {
 	mux.HandleFunc("/stats", globalAPIServer.Stats)
 	mux.HandleFunc("/retries", globalAPIServer.Retries)
 	mux.HandleFunc("/dead", globalAPIServer.Dead)
-	mux.HandleFunc("/dead/requeue", globalAPIServer.RequeueDead)
 }
 
 // StartAPIServer starts the API server

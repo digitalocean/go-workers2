@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-
-	"github.com/friesencr/go-workers2/storage"
 )
 
 const maxDeadPageSize = 1000
@@ -34,35 +32,6 @@ func (s *apiServer) Dead(w http.ResponseWriter, req *http.Request) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	enc.Encode(allDead)
-}
-
-func (s *apiServer) RequeueDead(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	jid := req.URL.Query().Get("jid")
-	if jid == "" {
-		http.Error(w, "jid is required", http.StatusBadRequest)
-		return
-	}
-
-	for _, m := range s.registeredManagers() {
-		err := m.RequeueDead(jid)
-		if err == nil {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		if err != storage.NoMessage {
-			s.logger.Error("couldn't requeue dead job", "jid", jid, "error", err)
-			http.Error(w, "couldn't requeue dead job", http.StatusInternalServerError)
-			return
-		}
-	}
-
-	http.Error(w, "dead job not found", http.StatusNotFound)
 }
 
 // Dead stores a page of dead jobs

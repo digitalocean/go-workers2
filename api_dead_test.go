@@ -183,9 +183,7 @@ func TestRequeueDeadConcurrentlyEnqueuesOnce(t *testing.T) {
 	assert.Equal(t, int64(0), dead)
 }
 
-func TestDead_ListsAndRequeuesOverHTTP(t *testing.T) {
-	ctx := context.Background()
-
+func TestDead_ListsOverHTTP(t *testing.T) {
 	a := &apiServer{
 		logger: slog.New(slog.NewTextHandler(os.Stdout, nil)),
 	}
@@ -199,14 +197,16 @@ func TestDead_ListsAndRequeuesOverHTTP(t *testing.T) {
 	message, _ := NewMsg("{\"class\":\"clazz\",\"jid\":\"2\",\"retry\":false}")
 	wares.build("prod:myqueue", mgr, panickingFunc)(message)
 
+	type listedDead struct {
+		TotalDeadCount int64                    `json:"total_dead_count"`
+		DeadJobs       []map[string]interface{} `json:"dead_jobs"`
+	}
+
 	recorder := httptest.NewRecorder()
 	a.Dead(recorder, httptest.NewRequest("GET", "/dead?page=0&page_size=5", nil))
 	assert.Equal(t, http.StatusOK, recorder.Code)
 
-	var listed []struct {
-		TotalDeadCount int64                    `json:"total_dead_count"`
-		DeadJobs       []map[string]interface{} `json:"dead_jobs"`
-	}
+	var listed []listedDead
 	err = json.Unmarshal(recorder.Body.Bytes(), &listed)
 	assert.NoError(t, err)
 	if assert.Len(t, listed, 1) {
@@ -220,25 +220,31 @@ func TestDead_ListsAndRequeuesOverHTTP(t *testing.T) {
 	a.Dead(recorder, httptest.NewRequest("GET", "/dead?page_size=0", nil))
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 
-	recorder = httptest.NewRecorder()
-	a.RequeueDead(recorder, httptest.NewRequest("GET", "/dead/requeue?jid=2", nil))
-	assert.Equal(t, http.StatusMethodNotAllowed, recorder.Code)
+	err = mgr.RequeueDead("2")
+	assert.NoError(t, err)
 
 	recorder = httptest.NewRecorder()
-	a.RequeueDead(recorder, httptest.NewRequest("POST", "/dead/requeue", nil))
-	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	a.Dead(recorder, httptest.NewRequest("GET", "/dead", nil))
+	assert.Equal(t, http.StatusOK, recorder.Code)
 
-	recorder = httptest.NewRecorder()
-	a.RequeueDead(recorder, httptest.NewRequest("POST", "/dead/requeue?jid=2", nil))
-	assert.Equal(t, http.StatusNoContent, recorder.Code)
+	var relisted []listedDead
+	err = json.Unmarshal(recorder.Body.Bytes(), &relisted)
+	assert.NoError(t, err)
+	if assert.Len(t, relisted, 1) {
+		assert.Equal(t, int64(0), relisted[0].TotalDeadCount)
+		assert.Empty(t, relisted[0].DeadJobs)
+	}
+}
 
-	queued, _ := opts.client.LLen(ctx, "prod:queue:myqueue").Result()
-	assert.Equal(t, int64(1), queued)
+func TestRegisterAPIEndpointsDoesNotExposeDeadRequeue(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterAPIEndpoints(mux)
 
-	recorder = httptest.NewRecorder()
-	a.RequeueDead(recorder, httptest.NewRequest("POST", "/dead/requeue?jid=2", nil))
-	assert.Equal(t, http.StatusNotFound, recorder.Code)
+	for _, path := range []string{"/stats", "/retries", "/dead"} {
+		_, pattern := mux.Handler(httptest.NewRequest("GET", path, nil))
+		assert.Equal(t, path, pattern)
+	}
 
-	queued, _ = opts.client.LLen(ctx, "prod:queue:myqueue").Result()
-	assert.Equal(t, int64(1), queued)
+	_, pattern := mux.Handler(httptest.NewRequest("POST", "/dead/requeue?jid=2", nil))
+	assert.Equal(t, "", pattern)
 }

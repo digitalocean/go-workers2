@@ -48,7 +48,10 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 
 		// If we can't add the job to the dead set,
 		// then we shouldn't acknowledge the job, otherwise
-		// it'll disappear into the void.
+		// it'll disappear into the void. The job stays in the
+		// in-progress queue and is delivered again, so a job that
+		// isn't idempotent can run again from here, and the
+		// handlers below can see the same job twice.
 		if deadErr != nil {
 			mgr.logger.Error("dead enqueue failed", "queue", queue, "jid", message.Jid(), "error", deadErr)
 			message.ack = false
