@@ -326,6 +326,33 @@ func TestDeadEnqueueFailureLeavesMessageUnacknowledged(t *testing.T) {
 	assert.Equal(t, 1, exhaustedCount)
 }
 
+func TestPanickingRetriesExhaustedHandlerRecordsDeadJobOnce(t *testing.T) {
+	ctx := context.Background()
+
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	mgr := &Manager{opts: opts, logger: opts.Logger}
+	var exhaustedCount int
+	mgr.SetRetriesExhaustedHandlers(func(queue string, message *Msg, err error) {
+		exhaustedCount++
+		panic("handler failed")
+	})
+
+	message, _ := NewMsg("{\"class\":\"clazz\",\"jid\":\"2\",\"retry\":false}")
+
+	err = DefaultMiddlewares().build("prod:myqueue", mgr, panickingFunc)(message)
+
+	assert.EqualError(t, err, "handler failed")
+	assert.Equal(t, 1, exhaustedCount)
+	dead, _ := opts.client.ZRange(ctx, deadSet(opts.Namespace), 0, -1).Result()
+	if assert.Len(t, dead, 1) {
+		deadMessage, _ := NewMsg(dead[0])
+		assert.Equal(t, errorText, deadMessage.Get("error_message").MustString())
+	}
+	assert.True(t, message.ack)
+}
+
 func TestRetryOnlyToCustomMax(t *testing.T) {
 	ctx := context.Background()
 

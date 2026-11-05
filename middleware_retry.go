@@ -67,21 +67,22 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 // RetryMiddleware middleware that allows retries for jobs failures
 func RetryMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 	return func(message *Msg) (err error) {
-		defer func() {
-			if e := recover(); e != nil {
-				var ok bool
-				if err, ok = e.(error); !ok {
-					err = fmt.Errorf("%v", e)
+		// Only the job's panic is recovered. Recovering one from a retries exhausted handler
+		// would process the failure again, writing a second dead entry and calling every handler twice.
+		err = func() (err error) {
+			defer func() {
+				if e := recover(); e != nil {
+					var ok bool
+					if err, ok = e.(error); !ok {
+						err = fmt.Errorf("%v", e)
+					}
 				}
 
-				if err != nil {
-					err = retryProcessError(queue, mgr, message, err)
-				}
-			}
+			}()
 
+			return next(message)
 		}()
 
-		err = next(message)
 		if err != nil {
 			err = retryProcessError(queue, mgr, message, err)
 		}
