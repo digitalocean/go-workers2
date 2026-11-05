@@ -14,7 +14,7 @@ func (s *apiServer) Retries(w http.ResponseWriter, req *http.Request) {
 	}
 
 	allRetries := []Retries{}
-	for _, m := range s.managers {
+	for _, m := range s.registeredManagers() {
 		r, err := m.GetRetries(page, pageSizeVal, query)
 		if err != nil {
 			s.logger.Error("couldn't retrieve retries for manager", "error", err)
