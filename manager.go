@@ -27,6 +27,7 @@ type Manager struct {
 	lock             sync.Mutex
 	signal           chan os.Signal
 	running          bool
+	stopping         bool
 	stop             chan bool
 	active           bool
 	logger           *slog.Logger
@@ -170,6 +171,7 @@ func (m *Manager) Run() {
 		return // Can't start if we're already running!
 	}
 	m.running = true
+	m.stopping = false
 
 	for _, h := range m.beforeStartHooks {
 		h()
@@ -223,9 +225,11 @@ func (m *Manager) Run() {
 func (m *Manager) Stop() {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	if !m.running {
+	// running stays true until Run has drained, so it cannot tell a second Stop from the first.
+	if !m.running || m.stopping {
 		return
 	}
+	m.stopping = true
 	if m.opts.Heartbeat != nil {
 		m.stopHeartbeat()
 	}
