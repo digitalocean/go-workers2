@@ -57,7 +57,7 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 			message.ack = false
 		}
 
-		for _, retriesExhaustedHandler := range mgr.retriesExhaustedHandlers {
+		for _, retriesExhaustedHandler := range mgr.getRetriesExhaustedHandlers() {
 			retriesExhaustedHandler(queue, message, err)
 		}
 	}

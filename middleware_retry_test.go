@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -392,6 +395,45 @@ func TestRetryEnqueueFailureReturnsJobErrorAndLeavesMessageUnacknowledged(t *tes
 
 	assert.EqualError(t, err, errorText)
 	assert.False(t, message.ack)
+}
+
+// Run with -race: the setter and the failing jobs race on the handlers slice unless the read is locked.
+func TestRetriesExhaustedHandlersCanBeSetWhileJobsFail(t *testing.T) {
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	mgr := &Manager{opts: opts, logger: opts.Logger}
+	var exhaustedCount atomic.Int32
+	handler := func(queue string, message *Msg, err error) {
+		exhaustedCount.Add(1)
+	}
+	mgr.SetRetriesExhaustedHandlers(handler)
+
+	done := make(chan struct{})
+	var setter sync.WaitGroup
+	setter.Add(1)
+	go func() {
+		defer setter.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				mgr.SetRetriesExhaustedHandlers(handler)
+			}
+		}
+	}()
+
+	const jobs = 50
+	job := wares.build("prod:myqueue", mgr, panickingFunc)
+	for i := 0; i < jobs; i++ {
+		message, _ := NewMsg(fmt.Sprintf("{\"class\":\"clazz\",\"jid\":\"%d\",\"retry\":false}", i))
+		job(message)
+	}
+	close(done)
+	setter.Wait()
+
+	assert.Equal(t, int32(jobs), exhaustedCount.Load())
 }
 
 func TestRetryOnlyToCustomMax(t *testing.T) {

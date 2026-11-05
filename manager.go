@@ -152,6 +152,14 @@ func (m *Manager) AddRetriesExhaustedHandlers(handlers ...RetriesExhaustedFunc) 
 	m.retriesExhaustedHandlers = append(m.retriesExhaustedHandlers, handlers...)
 }
 
+// The returned slice can be ranged over after the lock is released only because writers replace
+// the slice or append past its length, and never modify an element in place.
+func (m *Manager) getRetriesExhaustedHandlers() []RetriesExhaustedFunc {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	return m.retriesExhaustedHandlers
+}
+
 // Run starts all workers under this Manager and blocks until they exit.
 func (m *Manager) Run() {
 	m.startedAt = time.Now()
