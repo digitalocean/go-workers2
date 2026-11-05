@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -481,6 +482,51 @@ func TestManager_Run_HeartbeatHandlesStaleInProgressMessages(t *testing.T) {
 	mgr2.Stop()
 	wg1.Wait()
 	wg2.Wait()
+}
+
+func TestManager_Stop_BeforeHeartbeatStarts(t *testing.T) {
+	// With a single P, the Stop below is already waiting on the manager lock when Run releases it,
+	// so it runs before the heartbeat goroutine has been scheduled.
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
+
+	opts := SetupDefaultTestOptionsWithHeartbeat("prod", "1")
+	opts.PollInterval = 10 * time.Millisecond
+	opts.Heartbeat.Interval = 100 * time.Millisecond
+	mgr, err := newTestManager(opts, true)
+	assert.NoError(t, err)
+
+	stopped := make(chan bool)
+	mgr.AddBeforeStartHooks(func() {
+		stopping := make(chan bool)
+		go func() {
+			close(stopping)
+			mgr.Stop()
+			close(stopped)
+		}()
+		<-stopping
+	})
+
+	ran := make(chan bool)
+	go func() {
+		mgr.Run()
+		close(ran)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not return")
+	}
+	select {
+	case <-ran:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after Stop")
+	}
+
+	time.Sleep(5 * opts.Heartbeat.Interval)
+	processes, err := mgr.opts.client.SMembers(context.Background(), storage.GetProcessesKey(mgr.opts.Namespace)).Result()
+	assert.NoError(t, err)
+	assert.Empty(t, processes, "heartbeat kept running after Stop")
 }
 
 type testPrioritizedActiveManagerConfig struct {

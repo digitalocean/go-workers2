@@ -204,7 +204,10 @@ func (m *Manager) Run() {
 	}()
 
 	if m.opts.Heartbeat != nil {
-		go m.startHeartbeat()
+		// Created before the lock is released so that a Stop arriving before the goroutine runs
+		// still has a channel to signal, rather than blocking forever on a nil one.
+		m.heartbeatChannel = make(chan bool, 1)
+		go m.startHeartbeat(m.heartbeatChannel)
 	}
 
 	// Release the lock so that Stop can acquire it
@@ -402,9 +405,8 @@ func (m *Manager) RequeueDead(jid string) error {
 	}
 }
 
-func (m *Manager) startHeartbeat() error {
+func (m *Manager) startHeartbeat(stop <-chan bool) error {
 	heartbeatTicker := time.NewTicker(m.opts.Heartbeat.Interval)
-	m.heartbeatChannel = make(chan bool, 1)
 
 	for {
 		select {
@@ -432,7 +434,7 @@ func (m *Manager) startHeartbeat() error {
 					return err
 				}
 			}
-		case <-m.heartbeatChannel:
+		case <-stop:
 			return nil
 		}
 	}
@@ -512,7 +514,11 @@ func (m *Manager) Active(active bool) {
 }
 
 func (m *Manager) stopHeartbeat() {
-	m.heartbeatChannel <- true
+	select {
+	case m.heartbeatChannel <- true:
+	default:
+		// The buffer is full, so a stop is already pending.
+	}
 }
 
 func (m *Manager) sendHeartbeat(heartbeatTime time.Time) (*storage.Heartbeat, error) {
