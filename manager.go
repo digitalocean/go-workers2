@@ -2,9 +2,14 @@ package workers
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -307,6 +312,86 @@ func (m *Manager) GetRetries(page uint64, pageSize int64, match string) (Retries
 		TotalRetryCount: storeRetries.TotalRetryCount,
 		RetryJobs:       retryJobs,
 	}, nil
+}
+
+// GetDead returns a page of dead jobs for the manager, most recently dead first
+func (m *Manager) GetDead(page uint64, pageSize int64) (Dead, error) {
+	if pageSize <= 0 {
+		return Dead{}, errors.New("page size must be positive")
+	}
+	if page >= uint64(math.MaxInt64/pageSize) {
+		return Dead{}, errors.New("page out of range")
+	}
+
+	start := int64(page) * pageSize
+	storeDead, err := m.opts.store.GetDead(context.Background(), start, start+pageSize-1)
+	if err != nil {
+		return Dead{}, err
+	}
+
+	var deadJobs []*Msg
+	for _, d := range storeDead.DeadJobs {
+		deadJob, err := NewMsg(d)
+		if err != nil {
+			return Dead{}, err
+		}
+
+		deadJobs = append(deadJobs, deadJob)
+	}
+
+	return Dead{
+		TotalDeadCount: storeDead.TotalDeadCount,
+		DeadJobs:       deadJobs,
+	}, nil
+}
+
+var globEscaper = strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`, `]`, `\]`)
+
+// RequeueDead moves the dead job with the given jid back onto the queue it failed on.
+// It returns storage.NoMessage when no dead job has that jid.
+func (m *Manager) RequeueDead(jid string) error {
+	if jid == "" {
+		return errors.New("jid is required")
+	}
+
+	encodedJid, err := json.Marshal(jid)
+	if err != nil {
+		return err
+	}
+	match := "*" + globEscaper.Replace(string(encodedJid)) + "*"
+
+	ctx := context.Background()
+	var cursor uint64
+	for {
+		deadMessages, next, err := m.opts.store.ScanDeadMessages(ctx, cursor, match, 100)
+		if err != nil {
+			return err
+		}
+
+		for _, deadMessage := range deadMessages {
+			message, err := NewMsg(deadMessage)
+			if err != nil {
+				return err
+			}
+			if message.Jid() != jid {
+				continue
+			}
+
+			queue, _ := message.Get("queue").String()
+			queue = strings.TrimPrefix(queue, m.opts.Namespace)
+			if queue == "" {
+				return fmt.Errorf("dead job %s has no queue", jid)
+			}
+			message.Set("enqueued_at", nowToSecondsWithNanoPrecision())
+
+			return m.opts.store.RequeueDeadMessage(ctx, queue, deadMessage, message.ToJson())
+		}
+
+		if next == 0 {
+			return storage.NoMessage
+		}
+		cursor = next
+	}
 }
 
 func (m *Manager) startHeartbeat() error {

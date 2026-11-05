@@ -299,6 +299,39 @@ func (r *redisStore) DequeueRetriedMessage(ctx context.Context, priority float64
 	return messages[0], nil
 }
 
+func (r *redisStore) EnqueueDeadMessage(ctx context.Context, priority float64, message string) error {
+	_, err := r.client.ZAdd(ctx, r.namespace+DeadKey, redis.Z{
+		Score:  priority,
+		Member: message,
+	}).Result()
+
+	return err
+}
+
+// Removing from the dead set and pushing onto the queue in one script means a crash cannot drop the
+// job between the two steps, and concurrent requeues of the same job cannot both enqueue it.
+var requeueDeadMessageScript = redis.NewScript(`
+if redis.call("ZREM", KEYS[1], ARGV[1]) == 0 then
+	return 0
+end
+redis.call("LPUSH", KEYS[2], ARGV[2])
+return 1
+`)
+
+func (r *redisStore) RequeueDeadMessage(ctx context.Context, queue string, deadMessage string, message string) error {
+	keys := []string{r.namespace + DeadKey, r.getQueueName(queue)}
+	requeued, err := requeueDeadMessageScript.Run(ctx, r.client, keys, deadMessage, message).Int()
+	if err != nil {
+		return err
+	}
+
+	if requeued == 0 {
+		return NoMessage
+	}
+
+	return nil
+}
+
 func (r *redisStore) EnqueueMessageNow(ctx context.Context, queue string, message string) error {
 	queue = r.namespace + "queue:" + queue
 	_, err := r.client.LPush(ctx, queue, message).Result()
@@ -320,6 +353,37 @@ func (r *redisStore) GetAllRetries(ctx context.Context) (*Retries, error) {
 		RetryJobs:       retryJobsGet.Val(),
 		TotalRetryCount: retryCountGet.Val(),
 	}, nil
+}
+
+func (r *redisStore) GetDead(ctx context.Context, start int64, stop int64) (*Dead, error) {
+	pipe := r.client.Pipeline()
+
+	deadCountGet := pipe.ZCard(ctx, r.namespace+DeadKey)
+	deadJobsGet := pipe.ZRevRange(ctx, r.namespace+DeadKey, start, stop)
+
+	_, err := pipe.Exec(ctx)
+	if err != nil && err != redis.Nil {
+		return nil, err
+	}
+
+	return &Dead{
+		DeadJobs:       deadJobsGet.Val(),
+		TotalDeadCount: deadCountGet.Val(),
+	}, nil
+}
+
+func (r *redisStore) ScanDeadMessages(ctx context.Context, cursor uint64, match string, count int64) ([]string, uint64, error) {
+	membersAndScores, next, err := r.client.ZScan(ctx, r.namespace+DeadKey, cursor, match, count).Result()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	messages := make([]string, 0, len(membersAndScores)/2)
+	for i := 0; i < len(membersAndScores); i += 2 {
+		messages = append(messages, membersAndScores[i])
+	}
+
+	return messages, next, nil
 }
 
 func (r *redisStore) GetAllStats(ctx context.Context, queues []string) (*Stats, error) {

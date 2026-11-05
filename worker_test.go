@@ -285,4 +285,12 @@ func TestWorkerRetryDisabledFailureCallsRetriesExhaustedHandlerAndAcksOnce(t *te
 	queued, err := rc.LLen(ctx, "prod:queue:retrydisabled").Result()
 	assert.NoError(t, err)
 	assert.Equal(t, int64(0), queued)
+
+	dead, err := rc.ZRange(ctx, deadSet(mgr.opts.Namespace), 0, -1).Result()
+	assert.NoError(t, err)
+	if assert.Len(t, dead, 1) {
+		deadJob, err := NewMsg(dead[0])
+		assert.NoError(t, err)
+		assert.Equal(t, jid, deadJob.Jid())
+	}
 }

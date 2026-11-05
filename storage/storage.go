@@ -9,6 +9,7 @@ import (
 const (
 	RetryKey         = "goretry"
 	ScheduledJobsKey = "schedule"
+	DeadKey          = "godead"
 )
 
 // StorageError is used to return errors from the storage layer
@@ -33,6 +34,12 @@ type Stats struct {
 type Retries struct {
 	TotalRetryCount int64
 	RetryJobs       []string
+}
+
+// Dead has a page of messages in the dead set
+type Dead struct {
+	TotalDeadCount int64
+	DeadJobs       []string
 }
 
 // Heartbeat is used for the ruby sidekiq web ui
@@ -80,6 +87,9 @@ type Store interface {
 	EnqueueRetriedMessage(ctx context.Context, priority float64, message string) error
 	DequeueRetriedMessage(ctx context.Context, priority float64) (string, error)
 
+	EnqueueDeadMessage(ctx context.Context, priority float64, message string) error
+	RequeueDeadMessage(ctx context.Context, queue string, deadMessage string, message string) error
+
 	// Stats
 	IncrementStats(ctx context.Context, metric string) error
 	GetAllStats(ctx context.Context, queues []string) (*Stats, error)
@@ -91,6 +101,10 @@ type Store interface {
 
 	// Retries
 	GetAllRetries(ctx context.Context) (*Retries, error)
+
+	// Dead
+	GetDead(ctx context.Context, start int64, stop int64) (*Dead, error)
+	ScanDeadMessages(ctx context.Context, cursor uint64, match string, count int64) ([]string, uint64, error)
 
 	// Storage Server Time
 	GetTime(ctx context.Context) (time.Time, error)

@@ -41,6 +41,19 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 			message.ack = false
 		}
 	} else {
+		message.Set("queue", queue)
+		message.Set("error_message", fmt.Sprintf("%v", err))
+
+		deadErr := mgr.opts.store.EnqueueDeadMessage(context.Background(), nowToSecondsWithNanoPrecision(), message.ToJson())
+
+		// If we can't add the job to the dead set,
+		// then we shouldn't acknowledge the job, otherwise
+		// it'll disappear into the void.
+		if deadErr != nil {
+			mgr.logger.Error("dead enqueue failed", "queue", queue, "jid", message.Jid(), "error", deadErr)
+			message.ack = false
+		}
+
 		for _, retriesExhaustedHandler := range mgr.retriesExhaustedHandlers {
 			retriesExhaustedHandler(queue, message, err)
 		}

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/friesencr/go-workers2/storage"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -277,6 +279,51 @@ func TestDisableRetriesCallsRetryExhaustionHandler(t *testing.T) {
 	}
 	assert.EqualError(t, err, errorText)
 	assert.True(t, message.ack)
+}
+
+func TestDisableRetriesSendsToDeadSet(t *testing.T) {
+	ctx := context.Background()
+
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	mgr := &Manager{opts: opts}
+
+	message, _ := NewMsg("{\"class\":\"clazz\",\"jid\":\"2\",\"retry\":false}")
+
+	wares.build("prod:myqueue", mgr, panickingFunc)(message)
+
+	retries, _ := opts.client.ZCard(ctx, retryQueue(opts.Namespace)).Result()
+	assert.Equal(t, int64(0), retries)
+
+	dead, _ := opts.client.ZRange(ctx, deadSet(opts.Namespace), 0, -1).Result()
+	if assert.Len(t, dead, 1) {
+		assert.Equal(t, message.ToJson(), dead[0])
+	}
+	assert.True(t, message.ack)
+}
+
+func TestDeadEnqueueFailureLeavesMessageUnacknowledged(t *testing.T) {
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	closedClient := redis.NewClient(&redis.Options{Addr: testServerAddr, DB: testDatabase})
+	closedClient.Close()
+	opts.store = storage.NewRedisStore(opts.Namespace, closedClient, opts.Logger)
+
+	mgr := &Manager{opts: opts, logger: opts.Logger}
+	var exhaustedCount int
+	mgr.SetRetriesExhaustedHandlers(func(queue string, message *Msg, err error) {
+		exhaustedCount++
+	})
+
+	message, _ := NewMsg("{\"class\":\"clazz\",\"jid\":\"2\",\"retry\":false}")
+
+	err = wares.build("prod:myqueue", mgr, panickingFunc)(message)
+
+	assert.EqualError(t, err, errorText)
+	assert.False(t, message.ack)
+	assert.Equal(t, 1, exhaustedCount)
 }
 
 func TestRetryOnlyToCustomMax(t *testing.T) {
