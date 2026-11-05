@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// RetriesExhaustedFunc gets executed when retry attempts have been exhausted.
+// RetriesExhaustedFunc gets executed when retry attempts have been exhausted, or when a job with retries disabled fails.
 type RetriesExhaustedFunc func(queue string, message *Msg, err error)
 
 const (
@@ -20,10 +20,7 @@ const (
 )
 
 func retryProcessError(queue string, mgr *Manager, message *Msg, err error) error {
-	if !retry(message) {
-		return err
-	}
-	if retryCount(message) < retryMax(message) {
+	if retry(message) && retryCount(message) < retryMax(message) {
 		message.Set("queue", queue)
 		message.Set("error_message", fmt.Sprintf("%v", err))
 		retryCount := incrementRetry(message)

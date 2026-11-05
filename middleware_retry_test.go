@@ -242,6 +242,43 @@ func TestRetryMaxCallsRetryExhaustionHandler(t *testing.T) {
 	assert.NotNil(t, resultMessage.Args())
 }
 
+func TestDisableRetriesCallsRetryExhaustionHandler(t *testing.T) {
+	ctx := context.Background()
+
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	mgr := &Manager{opts: opts}
+	var resultQueue string
+	var resultError error
+	var resultMessage *Msg
+	var exhaustedCount int
+	mgr.SetRetriesExhaustedHandlers(func(queue string, message *Msg, err error) {
+		resultQueue = queue
+		resultError = err
+		resultMessage = message
+		exhaustedCount++
+	})
+
+	message, _ := NewMsg("{\"class\":\"clazz\",\"jid\":\"2\",\"retry\":false}")
+
+	err = wares.build("prod:myqueue", mgr, panickingFunc)(message)
+
+	count, _ := opts.client.ZCard(ctx, retryQueue(opts.Namespace)).Result()
+	assert.Equal(t, int64(0), count)
+	assert.Equal(t, 1, exhaustedCount)
+	assert.Equal(t, "prod:myqueue", resultQueue)
+	if assert.Error(t, resultError) {
+		assert.Equal(t, errorText, resultError.Error())
+	}
+	if assert.NotNil(t, resultMessage) {
+		assert.Equal(t, "clazz", resultMessage.Class())
+		assert.Equal(t, "2", resultMessage.Jid())
+	}
+	assert.EqualError(t, err, errorText)
+	assert.True(t, message.ack)
+}
+
 func TestRetryOnlyToCustomMax(t *testing.T) {
 	ctx := context.Background()
 

@@ -1,10 +1,13 @@
 package workers
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -215,4 +218,71 @@ func TestWorkerProcessesAndAcksMessages(t *testing.T) {
 
 	w.quit()
 	wg.Wait()
+}
+
+type ackCountingFetcher struct {
+	Fetcher
+	acks chan *Msg
+}
+
+func (f *ackCountingFetcher) Acknowledge(m *Msg) {
+	f.Fetcher.Acknowledge(m)
+	f.acks <- m
+}
+
+func TestWorkerRetryDisabledFailureCallsRetriesExhaustedHandlerAndAcksOnce(t *testing.T) {
+	ctx := context.Background()
+
+	mgr, err := newTestManager(testOptionsWithNamespace("prod"), true)
+	assert.NoError(t, err)
+	rc := mgr.opts.client
+
+	exhausted := make(chan *Msg, 10)
+	mgr.SetRetriesExhaustedHandlers(func(queue string, message *Msg, err error) {
+		exhausted <- message
+	})
+	jobCalls := make(chan *Msg, 10)
+	mgr.AddWorker("retrydisabled", 1, func(m *Msg) error {
+		jobCalls <- m
+		return errors.New(errorText)
+	})
+
+	jid, err := mgr.Producer().EnqueueWithOptions("retrydisabled", "clazz", []int{1}, EnqueueOptions{Retry: false})
+	assert.NoError(t, err)
+
+	w := mgr.workers[0]
+	fetcher := &ackCountingFetcher{
+		Fetcher: newSimpleFetcher(w.queue, *mgr.Opts(), true),
+		acks:    make(chan *Msg, 10),
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		w.start(fetcher)
+		wg.Done()
+	}()
+
+	select {
+	case <-fetcher.acks:
+	case <-time.After(10 * time.Second):
+		assert.FailNow(t, "message was never acknowledged")
+	}
+
+	w.quit()
+	wg.Wait()
+
+	assert.Len(t, fetcher.acks, 0)
+	assert.Len(t, jobCalls, 1)
+	if assert.Len(t, exhausted, 1) {
+		assert.Equal(t, jid, (<-exhausted).Jid())
+	}
+
+	inProgress, err := rc.LLen(ctx, "prod:queue:"+fetcher.InProgressQueue()).Result()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), inProgress)
+
+	queued, err := rc.LLen(ctx, "prod:queue:retrydisabled").Result()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), queued)
 }
