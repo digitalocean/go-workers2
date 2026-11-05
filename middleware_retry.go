@@ -31,13 +31,13 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 			) * time.Second,
 		)
 
-		err = mgr.opts.store.EnqueueRetriedMessage(context.Background(), nowToSecondsWithNanoPrecision()+waitDuration, message.ToJson())
+		retryErr := mgr.opts.store.EnqueueRetriedMessage(context.Background(), nowToSecondsWithNanoPrecision()+waitDuration, message.ToJson())
 
 		// If we can't add the job to the retry queue,
 		// then we shouldn't acknowledge the job, otherwise
 		// it'll disappear into the void.
-		if err != nil {
-			mgr.logger.Error("retry enqueue failed", "queue", queue, "jid", message.Jid(), "error", err)
+		if retryErr != nil {
+			mgr.logger.Error("retry enqueue failed", "queue", queue, "jid", message.Jid(), "error", retryErr)
 			message.ack = false
 		}
 	} else {

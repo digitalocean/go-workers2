@@ -1,9 +1,11 @@
 package workers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -351,6 +353,45 @@ func TestPanickingRetriesExhaustedHandlerRecordsDeadJobOnce(t *testing.T) {
 		assert.Equal(t, errorText, deadMessage.Get("error_message").MustString())
 	}
 	assert.True(t, message.ack)
+}
+
+func TestRetriedJobIsReportedAsFailed(t *testing.T) {
+	ctx := context.Background()
+
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	var logs bytes.Buffer
+	mgr := &Manager{opts: opts, logger: slog.New(slog.NewTextHandler(&logs, nil))}
+
+	message, _ := NewMsg("{\"class\":\"clazz\",\"jid\":\"2\",\"retry\":true}")
+
+	err = DefaultMiddlewares().build("prod:myqueue", mgr, panickingFunc)(message)
+
+	assert.EqualError(t, err, errorText)
+	count, _ := opts.client.ZCard(ctx, retryQueue(opts.Namespace)).Result()
+	assert.Equal(t, int64(1), count)
+	assert.Contains(t, logs.String(), `msg="job fail"`)
+	assert.NotContains(t, logs.String(), `msg="job done"`)
+	assert.True(t, message.ack)
+}
+
+func TestRetryEnqueueFailureReturnsJobErrorAndLeavesMessageUnacknowledged(t *testing.T) {
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	closedClient := redis.NewClient(&redis.Options{Addr: testServerAddr, DB: testDatabase})
+	closedClient.Close()
+	opts.store = storage.NewRedisStore(opts.Namespace, closedClient, opts.Logger)
+
+	mgr := &Manager{opts: opts, logger: opts.Logger}
+
+	message, _ := NewMsg("{\"class\":\"clazz\",\"jid\":\"2\",\"retry\":true}")
+
+	err = wares.build("prod:myqueue", mgr, panickingFunc)(message)
+
+	assert.EqualError(t, err, errorText)
+	assert.False(t, message.ack)
 }
 
 func TestRetryOnlyToCustomMax(t *testing.T) {
