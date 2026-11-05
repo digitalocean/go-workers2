@@ -34,7 +34,7 @@ type EnqueueData struct {
 // EnqueueOptions stores configuration for new work
 type EnqueueOptions struct {
 	RetryCount int     `json:"retry_count,omitempty"`
-	RetryMax   int     `json:"retry_max,omitempty"`
+	RetryMax   *int    `json:"retry_max,omitempty"` // nil falls back to DefaultRetryMax
 	Retry      bool    `json:"retry,omitempty"`
 	At         float64 `json:"at,omitempty"`
 }

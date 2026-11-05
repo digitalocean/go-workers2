@@ -2,6 +2,7 @@ package workers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -250,6 +251,67 @@ func TestRetryOnlyToCustomMax(t *testing.T) {
 	mgr := &Manager{opts: opts}
 
 	message, _ := NewMsg("{\"jid\":\"2\",\"max_retry\":3,\"retry_count\":3}")
+
+	wares.build("prod:myqueue", mgr, panickingFunc)(message)
+
+	count, _ := opts.client.ZCard(ctx, retryQueue(opts.Namespace)).Result()
+	assert.Equal(t, int64(0), count)
+}
+
+func TestRetryMaxZeroNeverRetries(t *testing.T) {
+	ctx := context.Background()
+
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	mgr := &Manager{opts: opts}
+	var exhaustedCount int
+	mgr.SetRetriesExhaustedHandlers(func(queue string, message *Msg, err error) {
+		exhaustedCount++
+	})
+
+	p := &Producer{opts: opts}
+	retryMax := 0
+	_, err = p.EnqueueWithOptions("myqueue", "clazz", []int{1}, EnqueueOptions{Retry: true, RetryMax: &retryMax})
+	assert.NoError(t, err)
+
+	raw, err := opts.client.LPop(ctx, "prod:queue:myqueue").Result()
+	assert.NoError(t, err)
+
+	var wire map[string]interface{}
+	err = json.Unmarshal([]byte(raw), &wire)
+	assert.NoError(t, err)
+	assert.Contains(t, wire, "retry_max")
+	assert.Equal(t, float64(0), wire["retry_max"])
+
+	message, err := NewMsg(raw)
+	assert.NoError(t, err)
+
+	wares.build("prod:myqueue", mgr, panickingFunc)(message)
+
+	count, _ := opts.client.ZCard(ctx, retryQueue(opts.Namespace)).Result()
+	assert.Equal(t, int64(0), count)
+	assert.Equal(t, 1, exhaustedCount)
+}
+
+func TestRetryMaxFromExistingMessageIsHonored(t *testing.T) {
+	ctx := context.Background()
+
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	mgr := &Manager{opts: opts}
+
+	raw := "{\"jid\":\"2\",\"retry\":true,\"retry_max\":2,\"retry_count\":2}"
+
+	var data EnqueueData
+	err = json.Unmarshal([]byte(raw), &data)
+	assert.NoError(t, err)
+	if assert.NotNil(t, data.RetryMax) {
+		assert.Equal(t, 2, *data.RetryMax)
+	}
+
+	message, _ := NewMsg(raw)
 
 	wares.build("prod:myqueue", mgr, panickingFunc)(message)
 
