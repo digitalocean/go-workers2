@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/friesencr/go-workers2/storage"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -116,6 +117,28 @@ func TestDefaultPollIntervalConfig(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, time.Second, opts.PollInterval)
+}
+
+func TestDeadSetCapsConfig(t *testing.T) {
+	opts, err := processOptions(Options{
+		ServerAddr: "localhost:6379",
+		ProcessID:  "1",
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(storage.DeadMaxJobs), opts.DeadMaxJobs)
+	assert.Equal(t, storage.DeadMaxAge, opts.DeadMaxAge)
+
+	opts, err = processOptions(Options{
+		ServerAddr:  "localhost:6379",
+		ProcessID:   "1",
+		DeadMaxJobs: 42,
+		DeadMaxAge:  time.Hour,
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(42), opts.DeadMaxJobs)
+	assert.Equal(t, time.Hour, opts.DeadMaxAge)
 }
 
 func TestSentinelConfigGood(t *testing.T) {

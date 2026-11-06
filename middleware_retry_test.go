@@ -314,7 +314,7 @@ func TestDeadEnqueueFailureLeavesMessageUnacknowledged(t *testing.T) {
 
 	closedClient := redis.NewClient(&redis.Options{Addr: testServerAddr, DB: testDatabase})
 	closedClient.Close()
-	opts.store = storage.NewRedisStore(opts.Namespace, closedClient, opts.Logger)
+	opts.store = storage.NewRedisStore(opts.Namespace, closedClient, opts.Logger, 0, 0)
 
 	mgr := &Manager{opts: opts, logger: opts.Logger}
 	var exhaustedCount int
@@ -385,7 +385,7 @@ func TestRetryEnqueueFailureReturnsJobErrorAndLeavesMessageUnacknowledged(t *tes
 
 	closedClient := redis.NewClient(&redis.Options{Addr: testServerAddr, DB: testDatabase})
 	closedClient.Close()
-	opts.store = storage.NewRedisStore(opts.Namespace, closedClient, opts.Logger)
+	opts.store = storage.NewRedisStore(opts.Namespace, closedClient, opts.Logger, 0, 0)
 
 	mgr := &Manager{opts: opts, logger: opts.Logger}
 

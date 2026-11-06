@@ -12,7 +12,7 @@ const (
 	DeadKey          = "godead"
 )
 
-// Every write to the dead set trims it to at most DeadMaxJobs entries, none older than DeadMaxAge
+// Default dead-set caps, matching Sidekiq. Override via workers.Options or NewRedisStore.
 const (
 	DeadMaxJobs = 10000
 	DeadMaxAge  = 180 * 24 * time.Hour

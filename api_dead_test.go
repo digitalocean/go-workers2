@@ -11,6 +11,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/friesencr/go-workers2/storage"
 	"github.com/redis/go-redis/v9"
@@ -147,9 +148,12 @@ func TestEnqueueDeadMessageKeepsNewestDeadMaxJobs(t *testing.T) {
 	assert.NoError(t, err)
 	rc := opts.client
 
-	const overflow = 5
+	const maxJobs int64 = 3
+	const overflow = 2
+	store := storage.NewRedisStore(opts.Namespace, rc, opts.Logger, maxJobs, 0)
+
 	now := nowToSecondsWithNanoPrecision()
-	seeded := make([]redis.Z, storage.DeadMaxJobs+overflow-1)
+	seeded := make([]redis.Z, maxJobs+overflow-1)
 	for i := range seeded {
 		// member names sort opposite to their scores, so only a trim by score keeps the newest
 		seeded[i] = redis.Z{
@@ -160,11 +164,11 @@ func TestEnqueueDeadMessageKeepsNewestDeadMaxJobs(t *testing.T) {
 	_, err = rc.ZAdd(ctx, deadSet(opts.Namespace), seeded...).Result()
 	assert.NoError(t, err)
 
-	err = opts.store.EnqueueDeadMessage(ctx, now, "job-newest")
+	err = store.EnqueueDeadMessage(ctx, now, "job-newest")
 	assert.NoError(t, err)
 
 	count, _ := rc.ZCard(ctx, deadSet(opts.Namespace)).Result()
-	assert.Equal(t, int64(storage.DeadMaxJobs), count)
+	assert.Equal(t, maxJobs, count)
 
 	for _, trimmed := range seeded[:overflow] {
 		_, err := rc.ZScore(ctx, deadSet(opts.Namespace), trimmed.Member.(string)).Result()
@@ -184,20 +188,23 @@ func TestEnqueueDeadMessageDropsEntriesOlderThanDeadMaxAge(t *testing.T) {
 	assert.NoError(t, err)
 	rc := opts.client
 
+	maxAge := time.Hour
+	store := storage.NewRedisStore(opts.Namespace, rc, opts.Logger, 0, maxAge)
+
 	now := nowToSecondsWithNanoPrecision()
-	maxAge := storage.DeadMaxAge.Seconds()
+	age := maxAge.Seconds()
 	_, err = rc.ZAdd(ctx, deadSet(opts.Namespace),
-		redis.Z{Score: now - maxAge - 3600, Member: "expired-by-an-hour"},
-		redis.Z{Score: now - maxAge - 1, Member: "expired-by-a-second"},
-		redis.Z{Score: now - maxAge + 3600, Member: "an-hour-from-expiry"},
+		redis.Z{Score: now - age - 3600, Member: "expired-by-an-hour"},
+		redis.Z{Score: now - age - 1, Member: "expired-by-a-second"},
+		redis.Z{Score: now - age + 60, Member: "a-minute-from-expiry"},
 	).Result()
 	assert.NoError(t, err)
 
-	err = opts.store.EnqueueDeadMessage(ctx, now, "newest")
+	err = store.EnqueueDeadMessage(ctx, now, "newest")
 	assert.NoError(t, err)
 
 	remaining, _ := rc.ZRange(ctx, deadSet(opts.Namespace), 0, -1).Result()
-	assert.Equal(t, []string{"an-hour-from-expiry", "newest"}, remaining)
+	assert.Equal(t, []string{"a-minute-from-expiry", "newest"}, remaining)
 }
 
 func TestRequeueDeadConcurrentlyEnqueuesOnce(t *testing.T) {

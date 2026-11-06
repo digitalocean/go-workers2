@@ -16,17 +16,29 @@ type redisStore struct {
 
 	client *redis.Client
 	logger *slog.Logger
+
+	deadMaxJobs int64
+	deadMaxAge  time.Duration
 }
 
 // Compile-time check to ensure that Redis store does in fact implement the Store interface
 var _ Store = &redisStore{}
 
-// NewRedisStore returns a new Redis store with the given namespace and preconfigured client
-func NewRedisStore(namespace string, client *redis.Client, logger *slog.Logger) Store {
+// NewRedisStore returns a new Redis store with the given namespace and preconfigured client.
+// maxJobs or maxAge of zero (or less) fall back to DeadMaxJobs and DeadMaxAge.
+func NewRedisStore(namespace string, client *redis.Client, logger *slog.Logger, maxJobs int64, maxAge time.Duration) Store {
+	if maxJobs <= 0 {
+		maxJobs = DeadMaxJobs
+	}
+	if maxAge <= 0 {
+		maxAge = DeadMaxAge
+	}
 	return &redisStore{
-		namespace: namespace,
-		client:    client,
-		logger:    logger,
+		namespace:   namespace,
+		client:      client,
+		logger:      logger,
+		deadMaxJobs: maxJobs,
+		deadMaxAge:  maxAge,
 	}
 }
 
@@ -307,8 +319,8 @@ func (r *redisStore) EnqueueDeadMessage(ctx context.Context, priority float64, m
 		Score:  priority,
 		Member: message,
 	})
-	pipe.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatFloat(priority-DeadMaxAge.Seconds(), 'f', -1, 64))
-	pipe.ZRemRangeByRank(ctx, key, 0, -DeadMaxJobs-1)
+	pipe.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatFloat(priority-r.deadMaxAge.Seconds(), 'f', -1, 64))
+	pipe.ZRemRangeByRank(ctx, key, 0, -r.deadMaxJobs-1)
 
 	_, err := pipe.Exec(ctx)
 	return err

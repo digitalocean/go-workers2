@@ -40,6 +40,13 @@ type Options struct {
 	// Define Heartbeat to enable heartbeat
 	Heartbeat *HeartbeatOptions
 
+	// DeadMaxJobs is the maximum number of jobs kept in the dead set.
+	// Zero uses storage.DeadMaxJobs (10000).
+	DeadMaxJobs int64
+	// DeadMaxAge is how long a dead job is retained.
+	// Zero uses storage.DeadMaxAge (180 days).
+	DeadMaxAge time.Duration
+
 	// Log
 	Logger *slog.Logger
 
@@ -111,8 +118,7 @@ func processOptions(options Options) (Options, error) {
 		options.Logger = slog.Default()
 	}
 
-	redisStore := storage.NewRedisStore(options.Namespace, options.client, options.Logger)
-	options.store = redisStore
+	options.store = storage.NewRedisStore(options.Namespace, options.client, options.Logger, options.DeadMaxJobs, options.DeadMaxAge)
 
 	if options.Heartbeat != nil {
 		if options.Heartbeat.Interval <= 0 {
@@ -142,8 +148,7 @@ func processOptionsWithRedisClient(options Options, client *redis.Client) (Optio
 		options.Logger = slog.Default()
 	}
 
-	redisStore := storage.NewRedisStore(options.Namespace, options.client, options.Logger)
-	options.store = redisStore
+	options.store = storage.NewRedisStore(options.Namespace, options.client, options.Logger, options.DeadMaxJobs, options.DeadMaxAge)
 
 	return options, nil
 }
@@ -159,6 +164,13 @@ func validateGeneralOptions(options Options) (Options, error) {
 
 	if options.PollInterval <= 0 {
 		options.PollInterval = 15 * time.Second
+	}
+
+	if options.DeadMaxJobs <= 0 {
+		options.DeadMaxJobs = storage.DeadMaxJobs
+	}
+	if options.DeadMaxAge <= 0 {
+		options.DeadMaxAge = storage.DeadMaxAge
 	}
 
 	if options.Heartbeat != nil &&
