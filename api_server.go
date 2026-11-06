@@ -36,6 +36,16 @@ func (s *apiServer) deregisterManager(m *Manager) {
 	delete(s.managers, m.uuid)
 }
 
+func (s *apiServer) registeredManagers() []*Manager {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	managers := make([]*Manager, 0, len(s.managers))
+	for _, m := range s.managers {
+		managers = append(managers, m)
+	}
+	return managers
+}
+
 var globalHTTPServer *http.Server
 
 var globalAPIServer = &apiServer{
@@ -59,6 +69,7 @@ func ConfigureAPIServer(options APIOptions) {
 func RegisterAPIEndpoints(mux *http.ServeMux) {
 	mux.HandleFunc("/stats", globalAPIServer.Stats)
 	mux.HandleFunc("/retries", globalAPIServer.Retries)
+	mux.HandleFunc("/dead", globalAPIServer.Dead)
 }
 
 // StartAPIServer starts the API server

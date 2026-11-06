@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// RetriesExhaustedFunc gets executed when retry attempts have been exhausted.
+// RetriesExhaustedFunc gets executed when retry attempts have been exhausted, or when a job with retries disabled fails.
 type RetriesExhaustedFunc func(queue string, message *Msg, err error)
 
 const (
@@ -20,10 +20,7 @@ const (
 )
 
 func retryProcessError(queue string, mgr *Manager, message *Msg, err error) error {
-	if !retry(message) {
-		return err
-	}
-	if retryCount(message) < retryMax(message) {
+	if retry(message) && retryCount(message) < retryMax(message) {
 		message.Set("queue", queue)
 		message.Set("error_message", fmt.Sprintf("%v", err))
 		retryCount := incrementRetry(message)
@@ -34,17 +31,33 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 			) * time.Second,
 		)
 
-		err = mgr.opts.store.EnqueueRetriedMessage(context.Background(), nowToSecondsWithNanoPrecision()+waitDuration, message.ToJson())
+		retryErr := mgr.opts.store.EnqueueRetriedMessage(context.Background(), nowToSecondsWithNanoPrecision()+waitDuration, message.ToJson())
 
 		// If we can't add the job to the retry queue,
 		// then we shouldn't acknowledge the job, otherwise
 		// it'll disappear into the void.
-		if err != nil {
-			mgr.logger.Error("retry enqueue failed", "queue", queue, "jid", message.Jid(), "error", err)
+		if retryErr != nil {
+			mgr.logger.Error("retry enqueue failed", "queue", queue, "jid", message.Jid(), "error", retryErr)
 			message.ack = false
 		}
 	} else {
-		for _, retriesExhaustedHandler := range mgr.retriesExhaustedHandlers {
+		message.Set("queue", queue)
+		message.Set("error_message", fmt.Sprintf("%v", err))
+
+		deadErr := mgr.opts.store.EnqueueDeadMessage(context.Background(), nowToSecondsWithNanoPrecision(), message.ToJson())
+
+		// If we can't add the job to the dead set,
+		// then we shouldn't acknowledge the job, otherwise
+		// it'll disappear into the void. The job stays in the
+		// in-progress queue and is delivered again, so a job that
+		// isn't idempotent can run again from here, and the
+		// handlers below can see the same job twice.
+		if deadErr != nil {
+			mgr.logger.Error("dead enqueue failed", "queue", queue, "jid", message.Jid(), "error", deadErr)
+			message.ack = false
+		}
+
+		for _, retriesExhaustedHandler := range mgr.getRetriesExhaustedHandlers() {
 			retriesExhaustedHandler(queue, message, err)
 		}
 	}
@@ -54,21 +67,22 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 // RetryMiddleware middleware that allows retries for jobs failures
 func RetryMiddleware(queue string, mgr *Manager, next JobFunc) JobFunc {
 	return func(message *Msg) (err error) {
-		defer func() {
-			if e := recover(); e != nil {
-				var ok bool
-				if err, ok = e.(error); !ok {
-					err = fmt.Errorf("%v", e)
+		// Only the job's panic is recovered. Recovering one from a retries exhausted handler
+		// would process the failure again, writing a second dead entry and calling every handler twice.
+		err = func() (err error) {
+			defer func() {
+				if e := recover(); e != nil {
+					var ok bool
+					if err, ok = e.(error); !ok {
+						err = fmt.Errorf("%v", e)
+					}
 				}
 
-				if err != nil {
-					err = retryProcessError(queue, mgr, message, err)
-				}
-			}
+			}()
 
+			return next(message)
 		}()
 
-		err = next(message)
 		if err != nil {
 			err = retryProcessError(queue, mgr, message, err)
 		}

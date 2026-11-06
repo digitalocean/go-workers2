@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -481,6 +482,142 @@ func TestManager_Run_HeartbeatHandlesStaleInProgressMessages(t *testing.T) {
 	mgr2.Stop()
 	wg1.Wait()
 	wg2.Wait()
+}
+
+func TestManager_Stop_BeforeHeartbeatStarts(t *testing.T) {
+	// With a single P, the Stop below is already waiting on the manager lock when Run releases it,
+	// so it runs before the heartbeat goroutine has been scheduled.
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
+
+	opts := SetupDefaultTestOptionsWithHeartbeat("prod", "1")
+	opts.PollInterval = 10 * time.Millisecond
+	opts.Heartbeat.Interval = 100 * time.Millisecond
+	mgr, err := newTestManager(opts, true)
+	assert.NoError(t, err)
+
+	stopped := make(chan bool)
+	mgr.AddBeforeStartHooks(func() {
+		stopping := make(chan bool)
+		go func() {
+			close(stopping)
+			mgr.Stop()
+			close(stopped)
+		}()
+		<-stopping
+	})
+
+	ran := make(chan bool)
+	go func() {
+		mgr.Run()
+		close(ran)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not return")
+	}
+	select {
+	case <-ran:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after Stop")
+	}
+
+	time.Sleep(5 * opts.Heartbeat.Interval)
+	processes, err := mgr.opts.client.SMembers(context.Background(), storage.GetProcessesKey(mgr.opts.Namespace)).Result()
+	assert.NoError(t, err)
+	assert.Empty(t, processes, "heartbeat kept running after Stop")
+}
+
+func TestManager_Stop_IsIdempotent(t *testing.T) {
+	opts := testOptionsWithNamespace("prod")
+	opts.PollInterval = 10 * time.Millisecond
+	mgr, err := newTestManager(opts, true)
+	assert.NoError(t, err)
+
+	started := make(chan bool)
+	release := make(chan bool)
+	mgr.AddWorker("stopqueue", 1, func(m *Msg) error {
+		close(started)
+		<-release
+		return nil
+	}, NopMiddleware)
+	w := mgr.workers[0]
+	workerRunning := func() bool {
+		w.runnersLock.Lock()
+		defer w.runnersLock.Unlock()
+		return w.running
+	}
+
+	waitFor := func(ch <-chan bool, failure string) {
+		select {
+		case <-ch:
+		case <-time.After(5 * time.Second):
+			t.Fatal(failure)
+		}
+	}
+	run := func() <-chan bool {
+		ran := make(chan bool)
+		go func() {
+			mgr.Run()
+			close(ran)
+		}()
+		// Run starts each worker in its own goroutine, and a Stop that lands before it has started
+		// cannot stop it.
+		assert.Eventually(t, workerRunning, 5*time.Second, time.Millisecond, "worker did not start")
+		return ran
+	}
+	const stoppers = 5
+	panics := make(chan interface{}, stoppers+2)
+	defer func() {
+		for {
+			select {
+			case e := <-panics:
+				t.Errorf("Stop panicked: %v", e)
+			default:
+				return
+			}
+		}
+	}()
+	stop := func() {
+		defer func() {
+			if e := recover(); e != nil {
+				panics <- e
+			}
+		}()
+		mgr.Stop()
+	}
+
+	// Enqueued before Run: a poller left blocked by an earlier Stop can take it, and Run only
+	// recovers it from the in-progress list at start.
+	_, err = mgr.Producer().Enqueue("stopqueue", "any", []int{1})
+	assert.NoError(t, err)
+	ran := run()
+	waitFor(started, "job did not start")
+
+	// The job holds Run in wg.Wait, so every one of these lands while the manager is still running.
+	var stops sync.WaitGroup
+	stops.Add(stoppers)
+	for i := 0; i < stoppers; i++ {
+		go func() {
+			defer stops.Done()
+			stop()
+		}()
+	}
+	stopped := make(chan bool)
+	go func() {
+		stops.Wait()
+		close(stopped)
+	}()
+	waitFor(stopped, "concurrent Stops did not return")
+
+	close(release)
+	waitFor(ran, "Run did not return after Stop")
+	stop()
+
+	ran = run()
+	stop()
+	waitFor(ran, "restarted Run did not return after Stop")
 }
 
 type testPrioritizedActiveManagerConfig struct {

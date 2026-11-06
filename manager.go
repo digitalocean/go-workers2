@@ -2,9 +2,14 @@ package workers
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +27,7 @@ type Manager struct {
 	lock             sync.Mutex
 	signal           chan os.Signal
 	running          bool
+	stopping         bool
 	stop             chan bool
 	active           bool
 	logger           *slog.Logger
@@ -147,6 +153,14 @@ func (m *Manager) AddRetriesExhaustedHandlers(handlers ...RetriesExhaustedFunc) 
 	m.retriesExhaustedHandlers = append(m.retriesExhaustedHandlers, handlers...)
 }
 
+// The returned slice can be ranged over after the lock is released only because writers replace
+// the slice or append past its length, and never modify an element in place.
+func (m *Manager) getRetriesExhaustedHandlers() []RetriesExhaustedFunc {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	return m.retriesExhaustedHandlers
+}
+
 // Run starts all workers under this Manager and blocks until they exit.
 func (m *Manager) Run() {
 	m.startedAt = time.Now()
@@ -157,6 +171,7 @@ func (m *Manager) Run() {
 		return // Can't start if we're already running!
 	}
 	m.running = true
+	m.stopping = false
 
 	for _, h := range m.beforeStartHooks {
 		h()
@@ -191,7 +206,10 @@ func (m *Manager) Run() {
 	}()
 
 	if m.opts.Heartbeat != nil {
-		go m.startHeartbeat()
+		// Created before the lock is released so that a Stop arriving before the goroutine runs
+		// still has a channel to signal, rather than blocking forever on a nil one.
+		m.heartbeatChannel = make(chan bool, 1)
+		go m.startHeartbeat(m.heartbeatChannel)
 	}
 
 	// Release the lock so that Stop can acquire it
@@ -207,9 +225,11 @@ func (m *Manager) Run() {
 func (m *Manager) Stop() {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	if !m.running {
+	// running stays true until Run has drained, so it cannot tell a second Stop from the first.
+	if !m.running || m.stopping {
 		return
 	}
+	m.stopping = true
 	if m.opts.Heartbeat != nil {
 		m.stopHeartbeat()
 	}
@@ -309,9 +329,88 @@ func (m *Manager) GetRetries(page uint64, pageSize int64, match string) (Retries
 	}, nil
 }
 
-func (m *Manager) startHeartbeat() error {
+// GetDead returns a page of dead jobs for the manager, most recently dead first
+func (m *Manager) GetDead(page uint64, pageSize int64) (Dead, error) {
+	if pageSize <= 0 {
+		return Dead{}, errors.New("page size must be positive")
+	}
+	if page >= uint64(math.MaxInt64/pageSize) {
+		return Dead{}, errors.New("page out of range")
+	}
+
+	start := int64(page) * pageSize
+	storeDead, err := m.opts.store.GetDead(context.Background(), start, start+pageSize-1)
+	if err != nil {
+		return Dead{}, err
+	}
+
+	var deadJobs []*Msg
+	for _, d := range storeDead.DeadJobs {
+		deadJob, err := NewMsg(d)
+		if err != nil {
+			return Dead{}, err
+		}
+
+		deadJobs = append(deadJobs, deadJob)
+	}
+
+	return Dead{
+		TotalDeadCount: storeDead.TotalDeadCount,
+		DeadJobs:       deadJobs,
+	}, nil
+}
+
+var globEscaper = strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`, `]`, `\]`)
+
+// RequeueDead moves the dead job with the given jid back onto the queue it failed on.
+// It returns storage.NoMessage when no dead job has that jid.
+func (m *Manager) RequeueDead(jid string) error {
+	if jid == "" {
+		return errors.New("jid is required")
+	}
+
+	encodedJid, err := json.Marshal(jid)
+	if err != nil {
+		return err
+	}
+	match := "*" + globEscaper.Replace(string(encodedJid)) + "*"
+
+	ctx := context.Background()
+	var cursor uint64
+	for {
+		deadMessages, next, err := m.opts.store.ScanDeadMessages(ctx, cursor, match, 100)
+		if err != nil {
+			return err
+		}
+
+		for _, deadMessage := range deadMessages {
+			message, err := NewMsg(deadMessage)
+			if err != nil {
+				return err
+			}
+			if message.Jid() != jid {
+				continue
+			}
+
+			queue, _ := message.Get("queue").String()
+			queue = strings.TrimPrefix(queue, m.opts.Namespace)
+			if queue == "" {
+				return fmt.Errorf("dead job %s has no queue", jid)
+			}
+			message.Set("enqueued_at", nowToSecondsWithNanoPrecision())
+
+			return m.opts.store.RequeueDeadMessage(ctx, queue, deadMessage, message.ToJson())
+		}
+
+		if next == 0 {
+			return storage.NoMessage
+		}
+		cursor = next
+	}
+}
+
+func (m *Manager) startHeartbeat(stop <-chan bool) error {
 	heartbeatTicker := time.NewTicker(m.opts.Heartbeat.Interval)
-	m.heartbeatChannel = make(chan bool, 1)
 
 	for {
 		select {
@@ -339,7 +438,7 @@ func (m *Manager) startHeartbeat() error {
 					return err
 				}
 			}
-		case <-m.heartbeatChannel:
+		case <-stop:
 			return nil
 		}
 	}
@@ -419,7 +518,11 @@ func (m *Manager) Active(active bool) {
 }
 
 func (m *Manager) stopHeartbeat() {
-	m.heartbeatChannel <- true
+	select {
+	case m.heartbeatChannel <- true:
+	default:
+		// The buffer is full, so a stop is already pending.
+	}
 }
 
 func (m *Manager) sendHeartbeat(heartbeatTime time.Time) (*storage.Heartbeat, error) {

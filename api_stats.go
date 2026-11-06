@@ -10,7 +10,7 @@ func (s *apiServer) Stats(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	allStats := []Stats{}
-	for _, m := range s.managers {
+	for _, m := range s.registeredManagers() {
 		stats, err := m.GetStats()
 		if err != nil {
 			s.logger.Error("couldn't retrieve stats for manager", "error", err)
