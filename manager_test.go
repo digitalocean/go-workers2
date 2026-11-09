@@ -129,6 +129,25 @@ func TestManager_AddDuringDrainHooks(t *testing.T) {
 	<-ch
 }
 
+func TestManager_AddWorkerWithOptionsStoresQueueRetainExhausted(t *testing.T) {
+	opts := testOptionsWithNamespace("prod")
+	mgr, err := NewManager(opts)
+	assert.NoError(t, err)
+
+	mgr.AddWorkerWithOptions("someq", 1, func(m *Msg) error { return nil }, WorkerOptions{
+		RetainExhausted: boolPtr(false),
+	})
+
+	value, set := mgr.queueRetainExhausted("someq")
+	assert.True(t, set)
+	assert.False(t, value)
+
+	mgr.SetClassOptions("Add", ClassOptions{RetainExhausted: boolPtr(false)})
+	value, set = mgr.classRetainExhausted("Add")
+	assert.True(t, set)
+	assert.False(t, value)
+}
+
 func TestManager_AddWorker(t *testing.T) {
 	namespace := "prod"
 	opts := testOptionsWithNamespace(namespace)

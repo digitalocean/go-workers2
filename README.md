@@ -97,6 +97,13 @@ func main() {
   // Add a job to a queue passing the context to redis
   producer.EnqueueWithContext(ctx.Background(), "myqueue3", "Add", []int{1, 2}, workers.EnqueueOptions{Retry: true})
 
+  // By default, exhausted jobs are kept in the dead set. Set RetainExhausted to false
+  // to discard them instead (per job, per class, or per queue; job wins over class over queue):
+  // retain := false
+  // producer.EnqueueWithOptions("myqueue3", "Add", []int{1, 2}, workers.EnqueueOptions{Retry: true, RetainExhausted: &retain})
+  // manager.SetClassOptions("Add", workers.ClassOptions{RetainExhausted: &retain})
+  // manager.AddWorkerWithOptions("myqueue3", 20, myJob, workers.WorkerOptions{RetainExhausted: &retain})
+
   // stats will be available at http://localhost:8080/stats
   go workers.StartAPIServer(8080)
 

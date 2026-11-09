@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"strings"
 	"time"
 )
 
@@ -44,17 +45,19 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 		message.Set("queue", queue)
 		message.Set("error_message", fmt.Sprintf("%v", err))
 
-		deadErr := mgr.opts.store.EnqueueDeadMessage(context.Background(), nowToSecondsWithNanoPrecision(), message.ToJson())
+		if retainExhausted(mgr, queue, message) {
+			deadErr := mgr.opts.store.EnqueueDeadMessage(context.Background(), nowToSecondsWithNanoPrecision(), message.ToJson())
 
-		// If we can't add the job to the dead set,
-		// then we shouldn't acknowledge the job, otherwise
-		// it'll disappear into the void. The job stays in the
-		// in-progress queue and is delivered again, so a job that
-		// isn't idempotent can run again from here, and the
-		// handlers below can see the same job twice.
-		if deadErr != nil {
-			mgr.logger.Error("dead enqueue failed", "queue", queue, "jid", message.Jid(), "error", deadErr)
-			message.ack = false
+			// If we can't add the job to the dead set,
+			// then we shouldn't acknowledge the job, otherwise
+			// it'll disappear into the void. The job stays in the
+			// in-progress queue and is delivered again, so a job that
+			// isn't idempotent can run again from here, and the
+			// handlers below can see the same job twice.
+			if deadErr != nil {
+				mgr.logger.Error("dead enqueue failed", "queue", queue, "jid", message.Jid(), "error", deadErr)
+				message.ack = false
+			}
 		}
 
 		for _, retriesExhaustedHandler := range mgr.getRetriesExhaustedHandlers() {
@@ -62,6 +65,24 @@ func retryProcessError(queue string, mgr *Manager, message *Msg, err error) erro
 		}
 	}
 	return err
+}
+
+// retainExhausted reports whether an exhausted job should be kept in the dead set.
+// Precedence: message retain_exhausted, then class options, then queue options, then true.
+func retainExhausted(mgr *Manager, queue string, message *Msg) bool {
+	if v, err := message.Get("retain_exhausted").Bool(); err == nil {
+		return v
+	}
+	if mgr != nil {
+		if v, ok := mgr.classRetainExhausted(message.Class()); ok {
+			return v
+		}
+		bare := strings.TrimPrefix(queue, mgr.opts.Namespace)
+		if v, ok := mgr.queueRetainExhausted(bare); ok {
+			return v
+		}
+	}
+	return true
 }
 
 // RetryMiddleware middleware that allows retries for jobs failures

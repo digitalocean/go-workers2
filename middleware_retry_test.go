@@ -512,3 +512,132 @@ func TestRetryMaxFromExistingMessageIsHonored(t *testing.T) {
 	count, _ := opts.client.ZCard(ctx, retryQueue(opts.Namespace)).Result()
 	assert.Equal(t, int64(0), count)
 }
+
+func boolPtr(b bool) *bool { return &b }
+
+func TestMessageRetainExhaustedFalseSkipsDeadSet(t *testing.T) {
+	ctx := context.Background()
+
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	mgr := &Manager{opts: opts, logger: opts.Logger}
+	var exhaustedCount int
+	mgr.SetRetriesExhaustedHandlers(func(queue string, message *Msg, err error) {
+		exhaustedCount++
+	})
+
+	message, _ := NewMsg("{\"class\":\"clazz\",\"jid\":\"2\",\"retry\":false,\"retain_exhausted\":false}")
+
+	err = wares.build("prod:myqueue", mgr, panickingFunc)(message)
+
+	assert.EqualError(t, err, errorText)
+	dead, _ := opts.client.ZCard(ctx, deadSet(opts.Namespace)).Result()
+	assert.Equal(t, int64(0), dead)
+	assert.True(t, message.ack)
+	assert.Equal(t, 1, exhaustedCount)
+}
+
+func TestMessageRetainExhaustedTrueOverridesClassAndQueue(t *testing.T) {
+	ctx := context.Background()
+
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	mgr := &Manager{opts: opts, logger: opts.Logger}
+	mgr.SetClassOptions("clazz", ClassOptions{RetainExhausted: boolPtr(false)})
+	mgr.queueOptions = map[string]WorkerOptions{
+		"myqueue": {RetainExhausted: boolPtr(false)},
+	}
+
+	message, _ := NewMsg("{\"class\":\"clazz\",\"jid\":\"2\",\"retry\":false,\"retain_exhausted\":true}")
+
+	err = wares.build("prod:myqueue", mgr, panickingFunc)(message)
+
+	assert.EqualError(t, err, errorText)
+	dead, _ := opts.client.ZRange(ctx, deadSet(opts.Namespace), 0, -1).Result()
+	assert.Len(t, dead, 1)
+	assert.True(t, message.ack)
+}
+
+func TestClassRetainExhaustedFalseSkipsDeadSet(t *testing.T) {
+	ctx := context.Background()
+
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	mgr := &Manager{opts: opts, logger: opts.Logger}
+	mgr.SetClassOptions("clazz", ClassOptions{RetainExhausted: boolPtr(false)})
+
+	message, _ := NewMsg("{\"class\":\"clazz\",\"jid\":\"2\",\"retry\":false}")
+
+	err = wares.build("prod:myqueue", mgr, panickingFunc)(message)
+
+	assert.EqualError(t, err, errorText)
+	dead, _ := opts.client.ZCard(ctx, deadSet(opts.Namespace)).Result()
+	assert.Equal(t, int64(0), dead)
+	assert.True(t, message.ack)
+}
+
+func TestQueueRetainExhaustedFalseSkipsDeadSet(t *testing.T) {
+	ctx := context.Background()
+
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	mgr := &Manager{opts: opts, logger: opts.Logger}
+	mgr.AddWorkerWithOptions("myqueue", 1, func(m *Msg) error { return nil }, WorkerOptions{
+		RetainExhausted: boolPtr(false),
+	}, NopMiddleware)
+
+	message, _ := NewMsg("{\"class\":\"clazz\",\"jid\":\"2\",\"retry\":false}")
+
+	err = wares.build("prod:myqueue", mgr, panickingFunc)(message)
+
+	assert.EqualError(t, err, errorText)
+	dead, _ := opts.client.ZCard(ctx, deadSet(opts.Namespace)).Result()
+	assert.Equal(t, int64(0), dead)
+	assert.True(t, message.ack)
+}
+
+func TestClassRetainExhaustedWinsOverQueue(t *testing.T) {
+	ctx := context.Background()
+
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	mgr := &Manager{opts: opts, logger: opts.Logger}
+	mgr.SetClassOptions("clazz", ClassOptions{RetainExhausted: boolPtr(false)})
+	mgr.queueOptions = map[string]WorkerOptions{
+		"myqueue": {RetainExhausted: boolPtr(true)},
+	}
+
+	message, _ := NewMsg("{\"class\":\"clazz\",\"jid\":\"2\",\"retry\":false}")
+
+	err = wares.build("prod:myqueue", mgr, panickingFunc)(message)
+
+	assert.EqualError(t, err, errorText)
+	dead, _ := opts.client.ZCard(ctx, deadSet(opts.Namespace)).Result()
+	assert.Equal(t, int64(0), dead)
+	assert.True(t, message.ack)
+}
+
+func TestExhaustedRetriesWithRetainExhaustedFalseSkipsDeadSet(t *testing.T) {
+	ctx := context.Background()
+
+	opts, err := SetupDefaultTestOptionsWithNamespace("prod")
+	assert.NoError(t, err)
+
+	mgr := &Manager{opts: opts, logger: opts.Logger}
+
+	message, _ := NewMsg("{\"class\":\"clazz\",\"jid\":\"2\",\"retry\":true,\"retry_count\":25,\"retain_exhausted\":false}")
+
+	err = wares.build("prod:myqueue", mgr, panickingFunc)(message)
+
+	assert.EqualError(t, err, errorText)
+	retries, _ := opts.client.ZCard(ctx, retryQueue(opts.Namespace)).Result()
+	assert.Equal(t, int64(0), retries)
+	dead, _ := opts.client.ZCard(ctx, deadSet(opts.Namespace)).Result()
+	assert.Equal(t, int64(0), dead)
+	assert.True(t, message.ack)
+}

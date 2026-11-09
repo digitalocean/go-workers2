@@ -89,6 +89,14 @@ func TestProducer_Enqueue(t *testing.T) {
 
 	retryMax := int(result["retry_max"].(float64))
 	assert.Equal(t, 21, retryMax)
+
+	retainExhausted := false
+	p.EnqueueWithOptions("enqueue7", "Compare", []string{"foo", "bar"}, EnqueueOptions{Retry: true, RetainExhausted: &retainExhausted})
+
+	bytes, _ = rc.LPop(ctx, "prod:queue:enqueue7").Result()
+	err = json.Unmarshal([]byte(bytes), &result)
+	assert.NoError(t, err)
+	assert.Equal(t, false, result["retain_exhausted"])
 }
 
 func TestProducer_EnqueueIn(t *testing.T) {

@@ -42,6 +42,23 @@ type Manager struct {
 	afterHeartbeatHooks []afterHeartbeatFunc
 
 	retriesExhaustedHandlers []RetriesExhaustedFunc
+
+	classOptions map[string]ClassOptions
+	queueOptions map[string]WorkerOptions
+}
+
+// ClassOptions configures behavior for jobs with a given class name.
+type ClassOptions struct {
+	// RetainExhausted controls whether exhausted jobs of this class are kept in the dead set.
+	// nil falls through to queue/default. false discards after exhaustion.
+	RetainExhausted *bool
+}
+
+// WorkerOptions configures behavior for a queue registered via AddWorkerWithOptions.
+type WorkerOptions struct {
+	// RetainExhausted controls whether exhausted jobs on this queue are kept in the dead set.
+	// nil falls through to default true. false discards after exhaustion.
+	RetainExhausted *bool
 }
 
 type staleMessageUpdate struct {
@@ -101,6 +118,15 @@ func newManager(processedOptions Options) (*Manager, error) {
 
 // AddWorker adds a new job processing worker
 func (m *Manager) AddWorker(queue string, concurrency int, job JobFunc, mids ...MiddlewareFunc) {
+	m.addWorker(queue, concurrency, job, nil, mids...)
+}
+
+// AddWorkerWithOptions adds a new job processing worker with queue-level options.
+func (m *Manager) AddWorkerWithOptions(queue string, concurrency int, job JobFunc, opts WorkerOptions, mids ...MiddlewareFunc) {
+	m.addWorker(queue, concurrency, job, &opts, mids...)
+}
+
+func (m *Manager) addWorker(queue string, concurrency int, job JobFunc, opts *WorkerOptions, mids ...MiddlewareFunc) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
@@ -110,7 +136,44 @@ func (m *Manager) AddWorker(queue string, concurrency int, job JobFunc, mids ...
 	} else {
 		job = NewMiddlewares(mids...).build(middlewareQueueName, m, job)
 	}
+	if opts != nil {
+		if m.queueOptions == nil {
+			m.queueOptions = make(map[string]WorkerOptions)
+		}
+		m.queueOptions[queue] = *opts
+	}
 	m.workers = append(m.workers, newWorker(m.logger, queue, concurrency, job))
+}
+
+// SetClassOptions sets options for jobs with the given class name.
+// Options replace any previous options for that class.
+func (m *Manager) SetClassOptions(class string, opts ClassOptions) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if m.classOptions == nil {
+		m.classOptions = make(map[string]ClassOptions)
+	}
+	m.classOptions[class] = opts
+}
+
+func (m *Manager) classRetainExhausted(class string) (value bool, set bool) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	opts, ok := m.classOptions[class]
+	if !ok || opts.RetainExhausted == nil {
+		return false, false
+	}
+	return *opts.RetainExhausted, true
+}
+
+func (m *Manager) queueRetainExhausted(queue string) (value bool, set bool) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	opts, ok := m.queueOptions[queue]
+	if !ok || opts.RetainExhausted == nil {
+		return false, false
+	}
+	return *opts.RetainExhausted, true
 }
 
 // AddBeforeStartHooks adds functions to be executed before the manager starts

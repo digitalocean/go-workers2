@@ -37,6 +37,9 @@ type EnqueueOptions struct {
 	RetryMax   *int    `json:"retry_max,omitempty"` // nil falls back to DefaultRetryMax
 	Retry      bool    `json:"retry,omitempty"`
 	At         float64 `json:"at,omitempty"`
+	// RetainExhausted controls whether an exhausted (or non-retryable) job is kept in the dead set.
+	// nil falls through to class/queue defaults (ultimately true). false discards the job after exhaustion.
+	RetainExhausted *bool `json:"retain_exhausted,omitempty"`
 }
 
 // NewProducer creates a new producer with the given options
